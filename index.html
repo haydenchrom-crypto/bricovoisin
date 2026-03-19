@@ -8,231 +8,285 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet" />
+
+  <!-- SUPABASE SDK ESM -->
   <script type="module">
     import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+    /* ===== CLES SUPABASE ===== */
     const SUPABASE_URL  = 'https://mltbnvmfhknvrowihjcm.supabase.co';
     const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1sdGJudm1maGtudnJvd2loamNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4OTYwNzcsImV4cCI6MjA4OTQ3MjA3N30.EqlSPGs7Mow_J_vSXeO-qyeBl_T1DaOvgT5S8lkwMTU';
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
+    let currentUser = null;
+
+    /* ===== AUTH STATE LISTENER ===== */
     supabase.auth.onAuthStateChange(function(_event, session) {
-      const user = session ? session.user : null;
-      window._currentUser = user;
-      updateAuthUI(user);
+      currentUser = session ? session.user : null;
+      updateAuthUI(currentUser);
     });
 
     function updateAuthUI(user) {
-      const av = document.getElementById('header-avatar');
-      const gr = document.getElementById('header-greeting');
+      const avatarEl   = document.getElementById('header-avatar');
+      const greetEl    = document.getElementById('header-greeting');
+      const navProfil  = document.getElementById('nav-profil');
+      const fabBtn     = document.getElementById('fab-proposer');
+      if (!avatarEl) return;
+
       if (user) {
-        av.textContent = user.email.charAt(0).toUpperCase();
-        av.style.background = 'linear-gradient(135deg,#fb923c,#ea580c)';
-        av.style.color = 'white';
-        gr.textContent = 'Bonjour, ' + user.email.split('@')[0] + ' \u{1F44B}';
+        const initiale = user.email.charAt(0).toUpperCase();
+        const pseudo   = user.email.split('@')[0];
+        avatarEl.textContent   = initiale;
+        avatarEl.style.background = 'linear-gradient(135deg,#fb923c,#ea580c)';
+        greetEl.textContent    = 'Bonjour, ' + pseudo + ' \u{1F44B}';
+        navProfil.onclick      = function() { openProfileModal(user); };
+        fabBtn.onclick         = function() { openModal(); };
+        closeAuthModal();
       } else {
-        av.textContent = '?';
-        av.style.background = '#e2e8f0';
-        av.style.color = '#64748b';
-        gr.textContent = 'Bonjour \u{1F44B}  Connectez-vous pour proposer';
+        avatarEl.textContent   = '?';
+        avatarEl.style.background = '#cbd5e1';
+        greetEl.textContent    = 'Bonjour \u{1F44B}';
+        navProfil.onclick      = function() { openAuthModal(); };
+        fabBtn.onclick         = function() { openAuthModal('proposer'); };
       }
     }
 
+    /* ===== SIGN UP ===== */
     async function signUp() {
-      const email = document.getElementById('auth-email').value.trim();
+      const email    = document.getElementById('auth-email').value.trim();
       const password = document.getElementById('auth-password').value;
-      if (!email)            { shakeWrap('wrap-auth-email');    return; }
-      if (password.length < 6) { shakeWrap('wrap-auth-password'); showAuthMsg('Le mot de passe doit comporter au moins 6 caracteres.', 'err'); return; }
-      setAuthBtn(true, 'Creation...');
+      if (!email)              { shakeWrap('wrap-auth-email'); return; }
+      if (password.length < 6) { shakeWrap('wrap-auth-password'); showAuthError('Mot de passe : 6 caracteres minimum.'); return; }
+      setAuthLoading(true, 'Inscription...');
       const { error } = await supabase.auth.signUp({ email, password });
-      setAuthBtn(false);
-      if (error) { showAuthMsg(error.message, 'err'); return; }
-      showAuthMsg('\u2705 Compte cree ! Verifiez votre boite mail.', 'ok');
+      setAuthLoading(false);
+      if (error) { showAuthError(authErrMsg(error.message)); return; }
+      showAuthSuccess('\u2705 Compte cree ! Verifiez votre email pour confirmer.');
     }
 
+    /* ===== SIGN IN ===== */
     async function signIn() {
-      const email = document.getElementById('auth-email').value.trim();
+      const email    = document.getElementById('auth-email').value.trim();
       const password = document.getElementById('auth-password').value;
       if (!email)    { shakeWrap('wrap-auth-email');    return; }
       if (!password) { shakeWrap('wrap-auth-password'); return; }
-      setAuthBtn(true, 'Connexion...');
+      setAuthLoading(true, 'Connexion...');
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      setAuthBtn(false);
-      if (error) { showAuthMsg('Email ou mot de passe incorrect.', 'err'); return; }
-      closeAuthModal();
+      setAuthLoading(false);
+      if (error) { showAuthError(authErrMsg(error.message)); return; }
       showToast('\u{1F389} Bienvenue sur BricoVoisin !');
     }
 
+    /* ===== SIGN OUT ===== */
     async function signOut() {
       await supabase.auth.signOut();
       closeProfileModal();
-      showToast('\u{1F44B} Vous etes deconnecte.');
+      showToast('\u{1F44B} Vous etes deconnecte(e).');
     }
 
+    /* ===== AUTH HELPERS ===== */
+    function setAuthLoading(on, label) {
+      const btn = document.getElementById('auth-submit-btn');
+      btn.disabled = on;
+      if (on) {
+        btn.innerHTML = '<span>\u23F3</span> ' + label;
+        btn.style.background = 'linear-gradient(135deg,#94a3b8,#64748b)';
+      } else {
+        refreshAuthBtn();
+      }
+    }
+    function refreshAuthBtn() {
+      const btn = document.getElementById('auth-submit-btn');
+      btn.disabled = false;
+      btn.style.background = 'linear-gradient(135deg,#fb923c,#ea580c)';
+      const tab = window._authTab || 'login';
+      btn.innerHTML = tab === 'login'
+        ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Se connecter'
+        : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg> Creer mon compte';
+    }
+    function showAuthError(msg) {
+      const el = document.getElementById('auth-feedback');
+      el.style.cssText = 'display:block;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:10px;padding:10px 14px;font-size:12.5px;font-weight:500;margin-top:4px;';
+      el.textContent = msg;
+    }
+    function showAuthSuccess(msg) {
+      const el = document.getElementById('auth-feedback');
+      el.style.cssText = 'display:block;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;border-radius:10px;padding:10px 14px;font-size:12.5px;font-weight:500;margin-top:4px;';
+      el.textContent = msg;
+    }
+    function authErrMsg(m) {
+      if (m.includes('Invalid login'))       return '\u274C Email ou mot de passe incorrect.';
+      if (m.includes('already registered'))  return '\u26A0\uFE0F Email deja utilise.';
+      if (m.includes('Email not confirmed')) return '\u{1F4E7} Confirmez votre email d\'abord.';
+      return '\u26A0\uFE0F ' + m;
+    }
+
+    /* ===== TOOLS ===== */
     async function fetchTools(cat) {
-      cat = cat || 'tous';
+      if (cat === undefined) cat = 'tous';
       showSkeleton();
       let q = supabase.from('tools').select('*').order('created_at', { ascending: false });
       if (cat !== 'tous') q = q.eq('categorie', cat);
       const { data, error } = await q;
-      if (error) { showGridErr(error.message); return; }
+      if (error) { showGridError(error.message); return; }
       renderGrid(data);
     }
 
     function renderGrid(tools) {
-      const g = document.getElementById('tools-grid');
+      const grid = document.getElementById('tools-grid');
       if (!tools || !tools.length) {
-        g.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:32px 0"><div style="font-size:40px;margin-bottom:8px">\u{1F50D}</div><p style="font-family:\'Syne\',sans-serif;font-weight:700;color:#1e293b;font-size:15px">Aucun outil dans cette categorie</p><p style="color:#94a3b8;font-size:12.5px;margin-top:4px">Soyez le premier a proposer !</p></div>';
+        grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:32px 0;"><div style="font-size:40px;margin-bottom:8px;">\u{1F50D}</div><p style="font-family:\'Syne\',sans-serif;font-weight:700;color:#1e293b;font-size:15px;">Aucun outil dans cette categorie</p><p style="color:#94a3b8;font-size:12.5px;margin-top:4px;">Soyez le premier a proposer !</p></div>';
         return;
       }
-      g.innerHTML = tools.map(cardHTML).join('');
+      grid.innerHTML = tools.map(createCardHTML).join('');
     }
 
-    function cardHTML(t) {
-      const ok = t.statut === 'disponible';
-      const bg = ({percage:'#fff7ed',jardin:'#f0fdf4',decoupe:'#fef2f2',peinture:'#eff6ff',nettoyage:'#f0fdfa'})[t.categorie] || '#f8fafc';
-      const badge = ok ? '<span class="badge ok">\u2713</span>' : '<span class="badge no">Lou\u00e9</span>';
-      const btn   = ok ? '<button class="btn-rent avail" onclick="sendRent(this,\''+esc(t.nom)+'\')">Louer</button>'
-                       : '<button class="btn-rent unavail" disabled>Indispo.</button>';
-      return '<div class="tool-card"><div class="card-img" style="background:'+bg+'">'+esc(t.emoji)+'</div><div class="card-body"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin-bottom:4px"><span class="card-title">'+esc(t.nom)+'</span>'+badge+'</div><div class="card-dist"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>'+esc(t.distance)+'</div><div class="card-footer"><div class="card-price"><span class="amt">'+t.prix_jour+'\u20ac</span><span class="unit">/jr</span></div>'+btn+'</div></div></div>';
+    function createCardHTML(t) {
+      const dispo = t.statut === 'disponible';
+      const bg    = { percage:'#fff7ed', jardin:'#f0fdf4', decoupe:'#fef2f2', peinture:'#eff6ff', nettoyage:'#f0fdfa' }[t.categorie] || '#f8fafc';
+      const badge = dispo ? '<span class="badge ok">\u2713</span>' : '<span class="badge no">Lou\u00E9</span>';
+      const btn   = dispo
+        ? '<button class="btn-rent avail" onclick="sendRent(this,\'' + esc(t.nom) + '\')">Louer</button>'
+        : '<button class="btn-rent unavail" disabled>Indispo.</button>';
+      return '<div class="tool-card"><div class="card-img" style="background:' + bg + ';">' + esc(t.emoji) + '</div><div class="card-body"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin-bottom:4px;"><span class="card-title">' + esc(t.nom) + '</span>' + badge + '</div><div class="card-dist"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>' + esc(t.distance) + '</div><div class="card-footer"><div class="card-price"><span class="amt">' + t.prix_jour + '€</span><span class="unit">/jr</span></div>' + btn + '</div></div></div>';
     }
 
     function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+    function showSkeleton() {
+      document.getElementById('tools-grid').innerHTML = Array(4).fill('<div class="tool-card" style="opacity:.5;pointer-events:none;"><div class="card-img" style="background:#f1f5f9;animation:pulse 1.4s infinite;"></div><div class="card-body"><div style="height:13px;background:#f1f5f9;border-radius:6px;width:70%;margin-bottom:8px;animation:pulse 1.4s infinite;"></div><div style="height:10px;background:#f1f5f9;border-radius:6px;width:40%;margin-bottom:10px;animation:pulse 1.4s infinite;"></div><div style="height:10px;background:#f1f5f9;border-radius:6px;width:55%;animation:pulse 1.4s infinite;"></div></div></div>').join('');
+    }
+    function showGridError(msg) {
+      document.getElementById('tools-grid').innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:24px 0;"><div style="font-size:36px;margin-bottom:8px;">\u26A0\uFE0F</div><p style="font-family:\'Syne\',sans-serif;font-weight:700;color:#dc2626;font-size:14px;">Connexion Supabase impossible</p><p style="color:#94a3b8;font-size:11.5px;margin-top:4px;">' + esc(msg) + '</p></div>';
+    }
+
+    /* ===== PUBLISH TOOL ===== */
     async function publishTool() {
-      const nom = document.getElementById('input-name').value.trim();
+      const nom       = document.getElementById('input-name').value.trim();
       const prix_jour = parseFloat(document.getElementById('input-price').value);
-      const emoji = window._chosenEmoji || '\u{1F527}';
+      const emoji     = window._chosenEmoji     || '\u{1F527}';
       const categorie = window._chosenCategorie || 'autre';
       if (!nom)                        { shakeWrap('wrap-name');  document.getElementById('input-name').focus();  return; }
       if (!prix_jour || prix_jour < 1) { shakeWrap('wrap-price'); document.getElementById('input-price').focus(); return; }
       const btn = document.getElementById('btn-publish');
       btn.disabled = true;
       btn.style.background = 'linear-gradient(135deg,#94a3b8,#64748b)';
-      btn.innerHTML = '\u23f3 Publication...';
-      const { error } = await supabase.from('tools').insert([{ nom, categorie, prix_jour, emoji, distance:'< 100 m', statut:'disponible' }]);
+      btn.innerHTML = '\u23F3 Publication...';
+      const { error } = await supabase.from('tools').insert([{ nom, categorie, prix_jour, emoji, distance: '< 100 m', statut: 'disponible' }]);
       if (error) {
-        btn.disabled = false; btn.style.background = 'linear-gradient(135deg,#f87171,#dc2626)';
-        btn.innerHTML = '\u26a0\ufe0f Erreur — reessayez';
-        setTimeout(resetPubBtn, 2000); return;
+        btn.disabled = false;
+        btn.style.background = 'linear-gradient(135deg,#f87171,#dc2626)';
+        btn.innerHTML = '\u26A0\uFE0F Erreur';
+        setTimeout(resetPublishBtn, 2000);
+        return;
       }
       btn.style.background = 'linear-gradient(135deg,#4ade80,#16a34a)';
       btn.innerHTML = '\u2713 Publie !';
-      setTimeout(function() { closeModal(); showToast(emoji+' \u00ab '+nom+' \u00bb publie avec succes !'); fetchTools(); setTimeout(resetPubBtn, 500); }, 850);
+      setTimeout(function() { closeModal(); showToast(emoji + ' \u00AB ' + nom + ' \u00BB publie !'); fetchTools(); setTimeout(resetPublishBtn, 500); }, 850);
     }
 
-    function showSkeleton() {
-      document.getElementById('tools-grid').innerHTML = Array(4).fill('<div class="tool-card" style="opacity:.5;pointer-events:none"><div class="card-img" style="background:#f1f5f9;animation:pulse 1.4s infinite"></div><div class="card-body"><div style="height:13px;background:#f1f5f9;border-radius:6px;width:70%;margin-bottom:8px;animation:pulse 1.4s infinite"></div><div style="height:10px;background:#f1f5f9;border-radius:6px;width:40%;margin-bottom:10px;animation:pulse 1.4s infinite"></div><div style="height:10px;background:#f1f5f9;border-radius:6px;width:55%;animation:pulse 1.4s infinite"></div></div></div>').join('');
-    }
-    function showGridErr(msg) {
-      document.getElementById('tools-grid').innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:24px 0"><div style="font-size:36px;margin-bottom:8px">\u26a0\ufe0f</div><p style="font-family:\'Syne\',sans-serif;font-weight:700;color:#dc2626;font-size:14px">Connexion Supabase impossible</p><p style="color:#94a3b8;font-size:11.5px;margin-top:4px">'+esc(msg)+'</p></div>';
-    }
-
-    function setAuthBtn(loading, label) {
-      const b = document.getElementById('btn-auth-submit');
-      b.disabled = loading; b.style.opacity = loading ? '.7' : '1';
-      if (loading) b.querySelector('#auth-btn-label').textContent = label;
-    }
-    function showAuthMsg(msg, type) {
-      const el = document.getElementById('auth-feedback');
-      el.textContent = msg;
-      el.style.color = type === 'err' ? '#dc2626' : '#16a34a';
-      el.style.display = 'block';
-    }
-
-    window.fetchTools  = fetchTools;
-    window.publishTool = publishTool;
-    window.signIn      = signIn;
-    window.signUp      = signUp;
-    window.signOut     = signOut;
+    /* ===== EXPOSE TO GLOBAL ===== */
+    window.fetchTools   = fetchTools;
+    window.publishTool  = publishTool;
+    window.signIn       = signIn;
+    window.signUp       = signUp;
+    window.signOut      = signOut;
 
     document.addEventListener('DOMContentLoaded', function() {
       fetchTools();
       supabase.auth.getSession().then(function(r) {
-        window._currentUser = r.data.session ? r.data.session.user : null;
-        updateAuthUI(window._currentUser);
+        currentUser = r.data.session ? r.data.session.user : null;
+        updateAuthUI(currentUser);
       });
     });
   </script>
+
   <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    html,body{background:#f1f5f9;font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 16px}
-    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-    @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
-    @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-5px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
-    .phone{width:390px;height:844px;background:#fff;border-radius:48px;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.06);position:relative;display:flex;flex-direction:column}
-    .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:126px;height:34px;background:#0f172a;border-radius:0 0 20px 20px;z-index:50}
-    .scroll-area{flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;padding-bottom:88px}
-    .scroll-area::-webkit-scrollbar{display:none}
-    .search-bar{display:flex;align-items:center;gap:10px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:14px;padding:12px 14px;transition:border-color .2s,box-shadow .2s}
-    .search-bar:focus-within{border-color:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,.12)}
-    .search-bar input{flex:1;background:transparent;border:none;outline:none;font-family:'DM Sans',sans-serif;font-size:13.5px;color:#1e293b}
-    .search-bar input::placeholder{color:#94a3b8}
-    .pill{border-radius:100px;padding:7px 16px;font-size:13px;font-weight:500;white-space:nowrap;cursor:pointer;border:none;font-family:'DM Sans',sans-serif;transition:all .18s ease}
-    .pill.active{background:#f97316;color:white}
-    .pill.inactive{background:#f1f5f9;color:#64748b}
-    .pill.inactive:hover{background:#ffedd5;color:#c2410c}
-    .tool-card{background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 2px 14px rgba(0,0,0,.07),0 1px 3px rgba(0,0,0,.04);transition:transform .2s cubic-bezier(.34,1.56,.64,1),box-shadow .2s;cursor:pointer}
-    .tool-card:active{transform:scale(.97);box-shadow:0 4px 20px rgba(0,0,0,.10)}
-    .card-img{width:100%;height:100px;display:flex;align-items:center;justify-content:center;font-size:42px}
-    .card-body{padding:10px}
-    .card-title{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:#1e293b;line-height:1.3;margin-bottom:4px}
-    .card-dist{display:flex;align-items:center;gap:3px;font-size:11px;color:#94a3b8;margin-bottom:8px}
-    .card-footer{display:flex;align-items:center;justify-content:space-between}
-    .card-price{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:#1e293b}
-    .card-price .amt{color:#f97316}
-    .card-price .unit{font-size:10px;font-weight:400;color:#94a3b8}
-    .btn-rent{border:none;border-radius:8px;padding:5px 11px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .18s}
-    .btn-rent.avail{background:#fff7ed;color:#f97316}
-    .btn-rent.unavail{background:#f1f5f9;color:#94a3b8;cursor:not-allowed}
-    .btn-rent.sent{background:#dcfce7;color:#16a34a;cursor:default}
-    .badge{font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:100px}
-    .badge.ok{background:#dcfce7;color:#16a34a}
-    .badge.no{background:#fee2e2;color:#dc2626}
-    .featured{border-radius:20px;overflow:hidden;position:relative;height:168px;background:linear-gradient(120deg,#1e293b,#334155);box-shadow:0 4px 20px rgba(249,115,22,.18);cursor:pointer}
-    .feat-bg{position:absolute;right:-10px;bottom:-14px;font-size:110px;opacity:.10;line-height:1;transform:rotate(-12deg);pointer-events:none;user-select:none}
-    .feat-body{position:absolute;inset:0;padding:18px 20px;display:flex;flex-direction:column;justify-content:space-between}
-    .recent-scroll{display:flex;gap:12px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px}
-    .recent-scroll::-webkit-scrollbar{display:none}
-    .recent-card{flex-shrink:0;width:130px}
-    .bottom-nav{position:absolute;bottom:0;left:0;right:0;height:80px;background:rgba(255,255,255,.96);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid rgba(0,0,0,.06);display:flex;align-items:center;justify-content:space-around;padding:0 8px 10px;z-index:40}
-    .nav-item{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:6px 10px;border-radius:12px;transition:background .15s}
-    .nav-item:active{background:#fff7ed}
-    .nav-lbl{font-size:10.5px;font-weight:500}
-    .avatar{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;font-family:'Syne',sans-serif;flex-shrink:0;cursor:pointer;transition:transform .18s;background:#e2e8f0;color:#64748b}
-    .avatar:hover{transform:scale(1.06)}
-    .fu{animation:fadeUp .4s cubic-bezier(.22,1,.36,1) both}
-    .d1{animation-delay:.05s}.d2{animation-delay:.10s}.d3{animation-delay:.15s}.d4{animation-delay:.20s}
-    #toast{position:fixed;bottom:104px;left:50%;transform:translateX(-50%) translateY(20px);background:#1e293b;color:white;padding:11px 18px;border-radius:14px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;display:flex;align-items:center;gap:9px;box-shadow:0 8px 28px rgba(0,0,0,.18);opacity:0;pointer-events:none;transition:opacity .28s ease,transform .28s cubic-bezier(.34,1.56,.64,1);z-index:9999;white-space:nowrap}
-    #toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
-    .toast-icon{width:22px;height:22px;background:linear-gradient(135deg,#fb923c,#ea580c);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-    .backdrop{position:fixed;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);opacity:0;pointer-events:none;transition:opacity .3s ease;z-index:1000}
-    .backdrop.show{opacity:1;pointer-events:auto}
-    .sheet{position:fixed;bottom:0;left:50%;transform:translateX(-50%) translateY(100%);width:390px;max-width:100vw;background:white;border-radius:28px 28px 0 0;padding-bottom:36px;box-shadow:0 -8px 40px rgba(0,0,0,.14);transition:transform .38s cubic-bezier(.32,1.25,.64,1);z-index:1001}
-    .sheet.show{transform:translateX(-50%) translateY(0)}
-    .sheet-handle{display:flex;justify-content:center;padding:14px 0 4px}
-    .sheet-handle-bar{width:36px;height:4px;background:#e2e8f0;border-radius:100px}
-    .sheet-head{display:flex;align-items:flex-start;justify-content:space-between;padding:10px 22px 18px}
-    .sheet-title{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:#1e293b;letter-spacing:-.3px}
-    .sheet-sub{font-size:12.5px;color:#94a3b8;margin-top:2px}
-    .sheet-close{width:32px;height:32px;background:#f1f5f9;border:none;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-    .sheet-body{padding:0 22px;display:flex;flex-direction:column;gap:14px}
-    .field-lbl{font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px}
-    .field-wrap{display:flex;align-items:center;gap:10px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:13px;padding:12px 14px;transition:border-color .2s,box-shadow .2s}
-    .field-wrap.focused{border-color:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,.12)}
-    .field-wrap.errored{border-color:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,.12);animation:shake .38s ease}
-    .field-wrap input{flex:1;background:transparent;border:none;outline:none;font-family:'DM Sans',sans-serif;font-size:14px;color:#1e293b}
-    .emoji-row{display:flex;gap:9px}
-    .emoji-btn{font-size:22px;width:46px;height:46px;border-radius:13px;border:2px solid #e2e8f0;background:#f8fafc;cursor:pointer;transition:all .18s}
-    .emoji-btn.active{border-color:#f97316;background:#fff7ed}
-    .btn-primary{width:100%;padding:15px;background:linear-gradient(135deg,#fb923c,#ea580c);color:white;border:none;border-radius:15px;font-family:'Syne',sans-serif;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(249,115,22,.28);display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .18s,background .3s,box-shadow .3s;margin-top:4px}
-    .btn-primary:active{transform:scale(.97)}
-    /* Auth tabs */
-    .auth-tabs{display:flex;background:#f1f5f9;border-radius:12px;padding:4px}
-    .auth-tab{flex:1;padding:9px;border:none;border-radius:9px;font-family:'DM Sans',sans-serif;font-size:13.5px;font-weight:600;cursor:pointer;transition:all .2s;background:transparent;color:#64748b}
-    .auth-tab.active{background:white;color:#1e293b;box-shadow:0 1px 6px rgba(0,0,0,.08)}
-    /* Profile */
-    .profile-avatar-lg{width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#fb923c,#ea580c);display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-size:26px;font-weight:700;color:white;margin:0 auto 12px}
-    .btn-danger{width:100%;padding:14px;background:#fff1f2;color:#dc2626;border:1.5px solid #fecdd3;border-radius:13px;font-family:'Syne',sans-serif;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .18s}
-    .btn-danger:hover{background:#fee2e2}
+    *{box-sizing:border-box;margin:0;padding:0;}
+    html,body{background:#f1f5f9;font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 16px;}
+    @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
+    @keyframes shake{0%,100%{transform:translateX(0);}20%{transform:translateX(-5px);}40%{transform:translateX(5px);}60%{transform:translateX(-3px);}80%{transform:translateX(3px);}}
+    .fu{animation:fadeUp .4s cubic-bezier(.22,1,.36,1) both;} .d1{animation-delay:.05s;} .d2{animation-delay:.10s;} .d3{animation-delay:.15s;}
+    /* Phone */
+    .phone{width:390px;height:844px;background:#fff;border-radius:48px;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.06);position:relative;display:flex;flex-direction:column;}
+    .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:126px;height:34px;background:#0f172a;border-radius:0 0 20px 20px;z-index:50;}
+    .scroll-area{flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;padding-bottom:88px;}
+    .scroll-area::-webkit-scrollbar{display:none;}
+    /* Search */
+    .search-bar{display:flex;align-items:center;gap:10px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:14px;padding:12px 14px;transition:border-color .2s,box-shadow .2s;}
+    .search-bar:focus-within{border-color:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,.12);}
+    .search-bar input{flex:1;background:transparent;border:none;outline:none;font-family:'DM Sans',sans-serif;font-size:13.5px;color:#1e293b;}
+    .search-bar input::placeholder{color:#94a3b8;}
+    /* Pills */
+    .pill{border-radius:100px;padding:7px 16px;font-size:13px;font-weight:500;white-space:nowrap;cursor:pointer;border:none;font-family:'DM Sans',sans-serif;transition:all .18s;}
+    .pill.active{background:#f97316;color:white;} .pill.inactive{background:#f1f5f9;color:#64748b;} .pill.inactive:hover{background:#ffedd5;color:#c2410c;}
+    /* Cards */
+    .tool-card{background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 2px 14px rgba(0,0,0,.07),0 1px 3px rgba(0,0,0,.04);transition:transform .2s cubic-bezier(.34,1.56,.64,1);cursor:pointer;}
+    .tool-card:active{transform:scale(.97);}
+    .card-img{width:100%;height:100px;display:flex;align-items:center;justify-content:center;font-size:42px;}
+    .card-body{padding:10px;}
+    .card-title{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:#1e293b;line-height:1.3;margin-bottom:4px;}
+    .card-dist{display:flex;align-items:center;gap:3px;font-size:11px;color:#94a3b8;margin-bottom:8px;}
+    .card-footer{display:flex;align-items:center;justify-content:space-between;}
+    .card-price{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:#1e293b;}
+    .card-price .amt{color:#f97316;} .card-price .unit{font-size:10px;font-weight:400;color:#94a3b8;}
+    .btn-rent{border:none;border-radius:8px;padding:5px 11px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .18s;}
+    .btn-rent.avail{background:#fff7ed;color:#f97316;} .btn-rent.unavail{background:#f1f5f9;color:#94a3b8;cursor:not-allowed;} .btn-rent.sent{background:#dcfce7;color:#16a34a;cursor:default;}
+    .badge{font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:100px;}
+    .badge.ok{background:#dcfce7;color:#16a34a;} .badge.no{background:#fee2e2;color:#dc2626;}
+    /* Featured */
+    .featured{border-radius:20px;overflow:hidden;position:relative;height:168px;background:linear-gradient(120deg,#1e293b,#334155);box-shadow:0 4px 20px rgba(249,115,22,.18);cursor:pointer;}
+    .feat-bg{position:absolute;right:-10px;bottom:-14px;font-size:110px;opacity:.10;line-height:1;transform:rotate(-12deg);pointer-events:none;user-select:none;}
+    .feat-body{position:absolute;inset:0;padding:18px 20px;display:flex;flex-direction:column;justify-content:space-between;}
+    /* Nav */
+    .bottom-nav{position:absolute;bottom:0;left:0;right:0;height:80px;background:rgba(255,255,255,.96);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid rgba(0,0,0,.06);display:flex;align-items:center;justify-content:space-around;padding:0 8px 10px;z-index:40;}
+    .nav-item{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:6px 10px;border-radius:12px;transition:background .15s;}
+    .nav-item:active{background:#fff7ed;} .nav-lbl{font-size:10.5px;font-weight:500;}
+    /* Avatar */
+    .avatar{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:14px;font-family:'Syne',sans-serif;flex-shrink:0;transition:background .3s;cursor:pointer;}
+    /* Toast */
+    #toast{position:fixed;bottom:104px;left:50%;transform:translateX(-50%) translateY(20px);background:#1e293b;color:white;padding:11px 18px;border-radius:14px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;display:flex;align-items:center;gap:9px;box-shadow:0 8px 28px rgba(0,0,0,.18);opacity:0;pointer-events:none;transition:opacity .28s,transform .28s cubic-bezier(.34,1.56,.64,1);z-index:9999;white-space:nowrap;}
+    #toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto;}
+    .toast-icon{width:22px;height:22px;background:linear-gradient(135deg,#fb923c,#ea580c);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+    /* Backdrop */
+    .backdrop{position:fixed;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);opacity:0;pointer-events:none;transition:opacity .3s;z-index:1000;}
+    .backdrop.show{opacity:1;pointer-events:auto;}
+    /* Bottom sheets */
+    .bottom-sheet{position:fixed;bottom:0;left:50%;transform:translateX(-50%) translateY(100%);width:390px;max-width:100vw;background:white;border-radius:28px 28px 0 0;padding-bottom:36px;box-shadow:0 -8px 40px rgba(0,0,0,.14);transition:transform .38s cubic-bezier(.32,1.25,.64,1);z-index:1001;}
+    .bottom-sheet.show{transform:translateX(-50%) translateY(0);}
+    .sheet-handle{display:flex;justify-content:center;padding:14px 0 4px;}
+    .sheet-handle-bar{width:36px;height:4px;background:#e2e8f0;border-radius:100px;}
+    .sheet-head{display:flex;align-items:flex-start;justify-content:space-between;padding:10px 22px 18px;}
+    .sheet-title{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:#1e293b;letter-spacing:-.3px;}
+    .sheet-sub{font-size:12.5px;color:#94a3b8;margin-top:2px;}
+    .sheet-close{width:32px;height:32px;background:#f1f5f9;border:none;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+    .sheet-body{padding:0 22px;display:flex;flex-direction:column;gap:14px;}
+    /* Auth modal (centred card) */
+    #auth-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.95);width:350px;max-width:calc(100vw - 32px);background:white;border-radius:24px;box-shadow:0 24px 60px rgba(0,0,0,.2),0 0 0 1px rgba(0,0,0,.05);opacity:0;pointer-events:none;transition:opacity .28s,transform .28s cubic-bezier(.34,1.56,.64,1);z-index:1001;padding-bottom:28px;}
+    #auth-modal.show{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1);}
+    .auth-tabs{display:flex;border-bottom:1px solid #f1f5f9;margin:0 22px;}
+    .auth-tab{flex:1;padding:14px 0;text-align:center;font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:#94a3b8;cursor:pointer;border:none;background:none;border-bottom:2.5px solid transparent;transition:color .18s,border-color .18s;margin-bottom:-1px;}
+    .auth-tab.active{color:#f97316;border-bottom-color:#f97316;}
+    .auth-hint{margin:14px 22px 0;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px 14px;font-size:12.5px;color:#c2410c;display:none;}
+    .auth-hint.visible{display:block;}
+    /* Form fields */
+    .field-lbl{font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px;margin-bottom:7px;}
+    .field-wrap{display:flex;align-items:center;gap:10px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:13px;padding:12px 14px;transition:border-color .2s,box-shadow .2s;}
+    .field-wrap.focused{border-color:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,.12);}
+    .field-wrap.errored{border-color:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,.12);animation:shake .38s ease;}
+    .field-wrap input{flex:1;background:transparent;border:none;outline:none;font-family:'DM Sans',sans-serif;font-size:14px;color:#1e293b;}
+    .field-wrap input::placeholder{color:#94a3b8;}
+    /* Buttons */
+    .btn-primary{width:100%;padding:15px;background:linear-gradient(135deg,#fb923c,#ea580c);color:white;border:none;border-radius:15px;font-family:'Syne',sans-serif;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(249,115,22,.28);display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .18s,background .3s;}
+    .btn-primary:active{transform:scale(.97);}
+    .btn-danger{width:100%;padding:14px;background:#fef2f2;color:#dc2626;border:1.5px solid #fecaca;border-radius:15px;font-family:'Syne',sans-serif;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .18s;}
+    .btn-danger:hover{background:#fee2e2;}
+    .btn-publish{width:100%;padding:15px;background:linear-gradient(135deg,#fb923c,#ea580c);color:white;border:none;border-radius:15px;font-family:'Syne',sans-serif;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(249,115,22,.28);display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .18s,background .3s;margin-top:4px;}
+    .btn-publish:active{transform:scale(.97);}
+    .emoji-row{display:flex;gap:9px;}
+    .emoji-btn{font-size:22px;width:46px;height:46px;border-radius:13px;border:2px solid #e2e8f0;background:#f8fafc;cursor:pointer;transition:all .18s;}
+    .emoji-btn.active{border-color:#f97316;background:#fff7ed;}
   </style>
 </head>
 <body>
@@ -246,58 +300,50 @@
     <div style="display:flex;align-items:center;justify-content:space-between;">
       <div style="display:flex;align-items:center;gap:8px;">
         <div style="width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#fb923c,#ea580c);display:flex;align-items:center;justify-content:center;">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-          </svg>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
         </div>
         <span style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:#1e293b;letter-spacing:-.5px;">Brico<span style="color:#f97316;">Voisin</span></span>
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
         <button style="position:relative;width:36px;height:36px;border-radius:10px;background:#f8fafc;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-          </svg>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           <span style="position:absolute;top:7px;right:7px;width:7px;height:7px;background:#f97316;border-radius:50%;border:1.5px solid white;"></span>
         </button>
-        <div id="header-avatar" class="avatar"
-             onclick="window._currentUser ? openProfileModal() : openAuthModal()">?</div>
+        <!-- Avatar — mis a jour par updateAuthUI() -->
+        <div id="header-avatar" class="avatar" style="background:#cbd5e1;" onclick="document.getElementById('nav-profil').onclick&&document.getElementById('nav-profil').onclick()">?</div>
       </div>
     </div>
     <div style="margin-top:18px;">
-      <p id="header-greeting" style="font-size:13px;color:#94a3b8;">Bonjour &#128075; Connectez-vous pour proposer</p>
-      <h1 style="font-family:'Syne',sans-serif;font-size:21px;font-weight:700;color:#1e293b;letter-spacing:-.4px;line-height:1.25;margin-top:3px;">
-        Trouvez l'outil qu'il<br/>vous faut aujourd'hui
-      </h1>
+      <p id="header-greeting" style="font-size:13px;color:#94a3b8;">Bonjour &#128075;</p>
+      <h1 style="font-family:'Syne',sans-serif;font-size:21px;font-weight:700;color:#1e293b;letter-spacing:-.4px;line-height:1.25;margin-top:3px;">Trouvez l'outil qu'il<br/>vous faut aujourd'hui</h1>
     </div>
   </header>
 
-  <!-- SCROLL AREA -->
+  <!-- SCROLL -->
   <div class="scroll-area">
-
+    <!-- Search -->
     <div style="padding:4px 22px 0;" class="fu d1">
       <div class="search-bar">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input type="text" placeholder="De quel outil avez-vous besoin ?" />
         <button style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#fb923c,#ea580c);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/>
-          </svg>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/></svg>
         </button>
       </div>
     </div>
 
+    <!-- Pills -->
     <div style="padding:14px 0 0;overflow-x:auto;scrollbar-width:none;" class="fu d2">
       <div id="pill-bar" style="display:flex;gap:8px;padding:0 22px;">
         <button class="pill active"   onclick="selectPill(this,'tous')">Tous</button>
         <button class="pill inactive" onclick="selectPill(this,'percage')">&#128296; Per&#231;age</button>
         <button class="pill inactive" onclick="selectPill(this,'jardin')">&#127807; Jardin</button>
-        <button class="pill inactive" onclick="selectPill(this,'decoupe')">&#129370; D&#233;coupe</button>
+        <button class="pill inactive" onclick="selectPill(this,'decoupe')">&#129302; D&#233;coupe</button>
         <button class="pill inactive" onclick="selectPill(this,'peinture')">&#127912; Peinture</button>
       </div>
     </div>
 
+    <!-- Featured -->
     <div style="padding:16px 22px 0;" class="fu d2">
       <div class="featured">
         <div class="feat-bg">&#128295;</div>
@@ -308,19 +354,16 @@
           </div>
           <div style="display:flex;align-items:center;justify-content:space-between;">
             <div>
-              <p style="color:rgba(255,255,255,.5);font-size:11.5px;margin-bottom:2px;">&#224; 350 m &#183; Disponible</p>
-              <p style="font-family:'Syne',sans-serif;font-size:21px;font-weight:700;color:white;">
-                <span style="color:#fb923c;">8&#8364;</span><span style="font-size:12px;font-weight:400;color:rgba(255,255,255,.5);">/jour</span>
-              </p>
+              <p style="color:rgba(255,255,255,.5);font-size:11.5px;margin-bottom:2px;">&#224; 350 m &middot; Disponible</p>
+              <p style="font-family:'Syne',sans-serif;font-size:21px;font-weight:700;color:white;"><span style="color:#fb923c;">8&#8364;</span><span style="font-size:12px;font-weight:400;color:rgba(255,255,255,.5);">/jour</span></p>
             </div>
-            <button onclick="sendRent(this,'Karcher K4')" style="background:linear-gradient(135deg,#fb923c,#ea580c);color:white;border:none;border-radius:11px;padding:10px 18px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">
-              R&#233;server &#8594;
-            </button>
+            <button onclick="sendRent(this,'Karcher K4')" style="background:linear-gradient(135deg,#fb923c,#ea580c);color:white;border:none;border-radius:11px;padding:10px 18px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">R&#233;server &#8594;</button>
           </div>
         </div>
       </div>
     </div>
 
+    <!-- Grid -->
     <div style="padding:22px 22px 0;" class="fu d3">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
         <span style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:#1e293b;letter-spacing:-.3px;">Pr&#232;s de vous</span>
@@ -328,46 +371,37 @@
       </div>
       <div id="tools-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;"></div>
     </div>
-
     <div style="height:16px;"></div>
   </div>
 
-  <!-- BOTTOM NAV -->
+  <!-- NAV -->
   <nav class="bottom-nav">
     <div class="nav-item">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-      </svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
       <span class="nav-lbl" style="color:#f97316;">Explorer</span>
       <div style="width:4px;height:4px;background:#f97316;border-radius:50%;"></div>
     </div>
     <div class="nav-item">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-      </svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
       <span class="nav-lbl" style="color:#94a3b8;">Mes Outils</span>
     </div>
+    <!-- FAB — onclick assigne par updateAuthUI() -->
     <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
-      <button onclick="onClickProposer()" style="width:52px;height:52px;background:linear-gradient(135deg,#fb923c,#ea580c);border:none;border-radius:16px;box-shadow:0 6px 20px rgba(249,115,22,.36);cursor:pointer;display:flex;align-items:center;justify-content:center;margin-top:-16px;transition:transform .18s;">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
+      <button id="fab-proposer" style="width:52px;height:52px;background:linear-gradient(135deg,#fb923c,#ea580c);border:none;border-radius:16px;box-shadow:0 6px 20px rgba(249,115,22,.36);cursor:pointer;display:flex;align-items:center;justify-content:center;margin-top:-16px;transition:transform .18s;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
       <span class="nav-lbl" style="color:#94a3b8;">Proposer</span>
     </div>
     <div class="nav-item">
       <div style="position:relative;">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-        </svg>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         <span style="position:absolute;top:-2px;right:-2px;width:7px;height:7px;background:#f97316;border-radius:50%;border:1.5px solid white;"></span>
       </div>
       <span class="nav-lbl" style="color:#94a3b8;">Messages</span>
     </div>
-    <div class="nav-item" onclick="window._currentUser ? openProfileModal() : openAuthModal()">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-      </svg>
+    <!-- Profil — onclick assigne par updateAuthUI() -->
+    <div id="nav-profil" class="nav-item">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       <span class="nav-lbl" style="color:#94a3b8;">Profil</span>
     </div>
   </nav>
@@ -375,21 +409,101 @@
 
 <!-- TOAST -->
 <div id="toast">
-  <div class="toast-icon">
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-  </div>
-  <span id="toast-text">Notification</span>
+  <div class="toast-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+  <span id="toast-text"></span>
 </div>
 
-<!-- MODAL : Proposer un outil -->
-<div id="backdrop-tool" class="backdrop" onclick="closeModal()"></div>
-<div id="modal-tool" class="sheet">
+<!-- BACKDROP -->
+<div id="shared-backdrop" class="backdrop" onclick="closeAllModals()"></div>
+
+<!-- MODALE AUTH -->
+<div id="auth-modal">
+  <div style="padding:24px 22px 0;display:flex;align-items:center;justify-content:space-between;">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#fb923c,#ea580c);display:flex;align-items:center;justify-content:center;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      </div>
+      <span style="font-family:'Syne',sans-serif;font-size:15px;font-weight:800;color:#1e293b;">Brico<span style="color:#f97316;">Voisin</span></span>
+    </div>
+    <button onclick="closeAuthModal()" style="width:30px;height:30px;background:#f1f5f9;border:none;border-radius:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <!-- Hint contextuel FAB -->
+  <div id="auth-hint" class="auth-hint">&#128274; Connectez-vous pour proposer un outil &#224; vos voisins !</div>
+  <!-- Onglets -->
+  <div style="margin-top:16px;">
+    <div class="auth-tabs">
+      <button id="tab-login"  class="auth-tab active" onclick="switchAuthTab('login')">Se connecter</button>
+      <button id="tab-signup" class="auth-tab"        onclick="switchAuthTab('signup')">S'inscrire</button>
+    </div>
+  </div>
+  <!-- Formulaire -->
+  <div style="padding:18px 22px 0;display:flex;flex-direction:column;gap:12px;">
+    <div>
+      <div class="field-lbl">Email</div>
+      <div class="field-wrap" id="wrap-auth-email">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" style="flex-shrink:0;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        <input id="auth-email" type="email" placeholder="votre@email.com" onfocus="focusWrap('wrap-auth-email')" onblur="blurWrap('wrap-auth-email')" onkeydown="if(event.key==='Enter')submitAuth()" />
+      </div>
+    </div>
+    <div>
+      <div class="field-lbl">Mot de passe</div>
+      <div class="field-wrap" id="wrap-auth-password">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" style="flex-shrink:0;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <input id="auth-password" type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" onfocus="focusWrap('wrap-auth-password')" onblur="blurWrap('wrap-auth-password')" onkeydown="if(event.key==='Enter')submitAuth()" />
+      </div>
+    </div>
+    <div id="auth-feedback"></div>
+    <button id="auth-submit-btn" class="btn-primary" onclick="submitAuth()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+      Se connecter
+    </button>
+    <p id="auth-switch-text" style="text-align:center;font-size:12.5px;color:#94a3b8;margin-top:-4px;">
+      Pas encore de compte ? <button onclick="switchAuthTab('signup')" style="color:#f97316;font-weight:600;background:none;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:12.5px;">S'inscrire</button>
+    </p>
+  </div>
+</div>
+
+<!-- MODALE PROFIL -->
+<div id="profile-modal" class="bottom-sheet">
+  <div class="sheet-handle"><div class="sheet-handle-bar"></div></div>
+  <div class="sheet-head">
+    <div><div class="sheet-title">Mon Profil</div><div class="sheet-sub">G&#233;rez votre compte BricoVoisin</div></div>
+    <button class="sheet-close" onclick="closeProfileModal()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+  </div>
+  <div class="sheet-body">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:8px 0 4px;">
+      <div id="profile-avatar" style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#fb923c,#ea580c);display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-size:26px;font-weight:700;color:white;">?</div>
+      <div style="text-align:center;">
+        <p id="profile-email" style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:#1e293b;">—</p>
+        <p style="font-size:12px;color:#94a3b8;margin-top:2px;">Membre BricoVoisin</p>
+      </div>
+    </div>
+    <div style="background:#f8fafc;border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:12.5px;color:#64748b;font-weight:500;">Statut</span>
+        <span style="font-size:12.5px;font-weight:700;color:#16a34a;background:#dcfce7;padding:3px 10px;border-radius:100px;">&#10003; Connect&#233;</span>
+      </div>
+      <div style="height:1px;background:#e2e8f0;"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:12.5px;color:#64748b;font-weight:500;">Rayon de partage</span>
+        <span style="font-size:12.5px;font-weight:600;color:#1e293b;">2 km</span>
+      </div>
+    </div>
+    <button class="btn-danger" onclick="signOut()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Se d&#233;connecter
+    </button>
+  </div>
+</div>
+
+<!-- MODALE OUTILS -->
+<div id="modal" class="bottom-sheet">
   <div class="sheet-handle"><div class="sheet-handle-bar"></div></div>
   <div class="sheet-head">
     <div><div class="sheet-title">Proposer un outil</div><div class="sheet-sub">Visible dans un rayon de 2 km</div></div>
-    <button class="sheet-close" onclick="closeModal()">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-    </button>
+    <button class="sheet-close" onclick="closeModal()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
   </div>
   <div class="sheet-body">
     <div>
@@ -397,7 +511,7 @@
       <div class="emoji-row">
         <button class="emoji-btn active" onclick="pickEmoji(this,'&#128297;','percage')">&#128297;</button>
         <button class="emoji-btn"        onclick="pickEmoji(this,'&#127807;','jardin')">&#127807;</button>
-        <button class="emoji-btn"        onclick="pickEmoji(this,'&#129370;','decoupe')">&#129370;</button>
+        <button class="emoji-btn"        onclick="pickEmoji(this,'&#129302;','decoupe')">&#129302;</button>
         <button class="emoji-btn"        onclick="pickEmoji(this,'&#127912;','peinture')">&#127912;</button>
         <button class="emoji-btn"        onclick="pickEmoji(this,'&#128295;','autre')">&#128295;</button>
       </div>
@@ -405,151 +519,36 @@
     <div>
       <div class="field-lbl">Nom de l'outil</div>
       <div class="field-wrap" id="wrap-name">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
-          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-        </svg>
-        <input id="input-name" type="text" placeholder="ex: Perceuse Bosch 18V"
-          onfocus="focusWrap('wrap-name')" onblur="blurWrap('wrap-name')" />
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" style="flex-shrink:0;"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+        <input id="input-name" type="text" placeholder="ex: Perceuse Bosch 18V" onfocus="focusWrap('wrap-name')" onblur="blurWrap('wrap-name')" />
       </div>
     </div>
     <div>
       <div class="field-lbl">Prix par jour</div>
       <div class="field-wrap" id="wrap-price">
         <span style="font-family:'Syne',sans-serif;font-weight:700;color:#f97316;font-size:17px;flex-shrink:0;">&#8364;</span>
-        <input id="input-price" type="number" min="1" placeholder="5"
-          style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;width:60px;"
-          onfocus="focusWrap('wrap-price')" onblur="blurWrap('wrap-price')" />
+        <input id="input-price" type="number" min="1" placeholder="5" style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;width:60px;" onfocus="focusWrap('wrap-price')" onblur="blurWrap('wrap-price')" />
         <span style="font-size:12px;color:#94a3b8;font-weight:500;margin-left:auto;">/jour</span>
       </div>
     </div>
-    <button class="btn-primary" id="btn-publish" onclick="publishTool()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-      </svg>
+    <button class="btn-publish" id="btn-publish" onclick="publishTool()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
       Publier l'annonce
-    </button>
-  </div>
-</div>
-
-<!-- MODAL : Authentification -->
-<div id="backdrop-auth" class="backdrop" onclick="closeAuthModal()"></div>
-<div id="modal-auth" class="sheet">
-  <div class="sheet-handle"><div class="sheet-handle-bar"></div></div>
-  <div class="sheet-head">
-    <div><div class="sheet-title">Mon compte</div><div class="sheet-sub">Rejoignez la communaut&#233; BricoVoisin</div></div>
-    <button class="sheet-close" onclick="closeAuthModal()">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-    </button>
-  </div>
-  <div class="sheet-body">
-    <!-- Tabs -->
-    <div class="auth-tabs">
-      <button id="tab-signin" class="auth-tab active"   onclick="switchTab('signin')">Se connecter</button>
-      <button id="tab-signup" class="auth-tab"          onclick="switchTab('signup')">S'inscrire</button>
-    </div>
-    <!-- Email -->
-    <div>
-      <div class="field-lbl">Adresse email</div>
-      <div class="field-wrap" id="wrap-auth-email">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
-          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
-        </svg>
-        <input id="auth-email" type="email" placeholder="exemple@mail.com"
-          onfocus="focusWrap('wrap-auth-email');clearFeedback()"
-          onblur="blurWrap('wrap-auth-email')"
-          onkeydown="if(event.key==='Enter')onAuthSubmit()" />
-      </div>
-    </div>
-    <!-- Password -->
-    <div>
-      <div class="field-lbl">Mot de passe</div>
-      <div class="field-wrap" id="wrap-auth-password">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-        </svg>
-        <input id="auth-password" type="password" placeholder="6 caract&#232;res minimum"
-          onfocus="focusWrap('wrap-auth-password');clearFeedback()"
-          onblur="blurWrap('wrap-auth-password')"
-          onkeydown="if(event.key==='Enter')onAuthSubmit()" />
-        <button onclick="togglePwd()" style="background:none;border:none;cursor:pointer;padding:0;display:flex;align-items:center;flex-shrink:0;">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-    <!-- Feedback -->
-    <p id="auth-feedback" style="font-size:12.5px;font-weight:500;text-align:center;display:none;padding:0 4px;line-height:1.4;"></p>
-    <!-- Submit -->
-    <button class="btn-primary" id="btn-auth-submit" onclick="onAuthSubmit()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>
-      </svg>
-      <span id="auth-btn-label">Se connecter</span>
-    </button>
-    <!-- Switch link -->
-    <p style="text-align:center;font-size:12.5px;color:#94a3b8;">
-      <span id="auth-switch-txt">Pas encore de compte ?</span>
-      <button id="auth-switch-btn" onclick="switchTab('signup')"
-        style="background:none;border:none;color:#f97316;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:12.5px;margin-left:4px;">S'inscrire</button>
-    </p>
-  </div>
-</div>
-
-<!-- MODAL : Profil utilisateur -->
-<div id="backdrop-profile" class="backdrop" onclick="closeProfileModal()"></div>
-<div id="modal-profile" class="sheet">
-  <div class="sheet-handle"><div class="sheet-handle-bar"></div></div>
-  <div class="sheet-head">
-    <div><div class="sheet-title">Mon profil</div><div class="sheet-sub">G&#233;rez votre compte</div></div>
-    <button class="sheet-close" onclick="closeProfileModal()">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-    </button>
-  </div>
-  <div class="sheet-body" style="align-items:center;">
-    <div class="profile-avatar-lg" id="profile-avatar-lg">?</div>
-    <div style="text-align:center;margin-bottom:4px;">
-      <p id="profile-email" style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:#1e293b;">—</p>
-      <p style="font-size:12px;color:#94a3b8;margin-top:2px;">Membre BricoVoisin</p>
-    </div>
-    <div style="width:100%;height:1px;background:#f1f5f9;margin:4px 0;"></div>
-    <div style="display:flex;width:100%;border:1.5px solid #f1f5f9;border-radius:14px;overflow:hidden;">
-      <div style="flex:1;text-align:center;padding:14px 8px;">
-        <p style="font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:#f97316;">0</p>
-        <p style="font-size:11px;color:#94a3b8;margin-top:2px;">Outils propos&#233;s</p>
-      </div>
-      <div style="width:1px;background:#f1f5f9;"></div>
-      <div style="flex:1;text-align:center;padding:14px 8px;">
-        <p style="font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:#f97316;">0</p>
-        <p style="font-size:11px;color:#94a3b8;margin-top:2px;">Locations</p>
-      </div>
-      <div style="width:1px;background:#f1f5f9;"></div>
-      <div style="flex:1;text-align:center;padding:14px 8px;">
-        <p style="font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:#f97316;">&#11088;</p>
-        <p style="font-size:11px;color:#94a3b8;margin-top:2px;">Note</p>
-      </div>
-    </div>
-    <button class="btn-danger" onclick="signOut()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
-      </svg>
-      Se d&#233;connecter
     </button>
   </div>
 </div>
 
 <!-- JS GLOBAL -->
 <script>
-  window._currentUser     = null;
-  window._chosenEmoji     = '\u{1F529}';
+  window._chosenEmoji = '\u{1F529}';
   window._chosenCategorie = 'percage';
-  window._authMode        = 'signin';
+  window._authTab = 'login';
 
-  function selectPill(el, cat) {
-    document.querySelectorAll('#pill-bar .pill').forEach(function(p){ p.classList.remove('active'); p.classList.add('inactive'); });
-    el.classList.remove('inactive'); el.classList.add('active');
-    el.style.transform='scale(.92)'; setTimeout(function(){ el.style.transform=''; },200);
-    if(window.fetchTools) window.fetchTools(cat);
+  function selectPill(el,cat){
+    document.querySelectorAll('#pill-bar .pill').forEach(function(p){p.classList.remove('active');p.classList.add('inactive');});
+    el.classList.remove('inactive');el.classList.add('active');
+    el.style.transform='scale(.92)';setTimeout(function(){el.style.transform='';},200);
+    if(window.fetchTools)window.fetchTools(cat);
   }
 
   var _tt=null;
@@ -558,862 +557,101 @@
     document.getElementById('toast-text').textContent=msg;
     t.classList.add('show');
     if(_tt)clearTimeout(_tt);
-    _tt=setTimeout(function(){ t.classList.remove('show'); },3200);
+    _tt=setTimeout(function(){t.classList.remove('show');},3200);
   }
 
   function sendRent(btn,name){
     if(btn.classList.contains('sent')||btn.disabled)return;
-    btn.classList.remove('avail'); btn.classList.add('sent');
-    btn.textContent='\u2713 Envoy\u00e9'; btn.onclick=null;
-    showToast('Demande envoy\u00e9e pour\u00a0: '+name+' !');
+    btn.classList.remove('avail');btn.classList.add('sent');
+    btn.textContent='\u2713 Envoy\u00E9';btn.onclick=null;
+    showToast('Demande envoy\u00E9e pour\u00A0: '+name+' !');
   }
 
-  function onClickProposer(){
-    if(window._currentUser){ openModal(); }
-    else{ openAuthModal(); showToast('\u{1F510} Connectez-vous pour proposer un outil'); }
-  }
+  function showBackdrop(){document.getElementById('shared-backdrop').classList.add('show');}
+  function hideBackdrop(){document.getElementById('shared-backdrop').classList.remove('show');}
+  function closeAllModals(){closeModal();closeAuthModal();closeProfileModal();}
 
-  /* -- Modal outil -- */
+  /* Modale outils */
   function openModal(){
-    document.getElementById('backdrop-tool').classList.add('show');
-    document.getElementById('modal-tool').classList.add('show');
+    closeAuthModal();closeProfileModal();
+    document.getElementById('modal').classList.add('show');
     document.getElementById('input-name').value='';
     document.getElementById('input-price').value='';
-    resetPubBtn();
+    resetPublishBtn();showBackdrop();
   }
-  function closeModal(){
-    document.getElementById('backdrop-tool').classList.remove('show');
-    document.getElementById('modal-tool').classList.remove('show');
-  }
-  function pickEmoji(btn,emoji,cat){
-    window._chosenEmoji=emoji; window._chosenCategorie=cat;
-    document.querySelectorAll('.emoji-btn').forEach(function(b){ b.classList.remove('active'); });
-    btn.classList.add('active');
-  }
-  function resetPubBtn(){
-    var b=document.getElementById('btn-publish');
-    b.disabled=false;
-    b.style.background='linear-gradient(135deg,#fb923c,#ea580c)';
-    b.style.boxShadow='0 6px 20px rgba(249,115,22,.28)';
-    b.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Publier l\'annonce';
-  }
+  function closeModal(){document.getElementById('modal').classList.remove('show');hideBackdrop();}
 
-  /* -- Modal auth -- */
-  function openAuthModal(){
-    clearFeedback();
+  /* Modale auth */
+  function openAuthModal(ctx){
+    closeModal();closeProfileModal();
+    document.getElementById('auth-modal').classList.add('show');
     document.getElementById('auth-email').value='';
     document.getElementById('auth-password').value='';
-    document.getElementById('backdrop-auth').classList.add('show');
-    document.getElementById('modal-auth').classList.add('show');
-    switchTab('signin');
+    clearFeedback();switchAuthTab('login');
+    var h=document.getElementById('auth-hint');
+    ctx==='proposer'?h.classList.add('visible'):h.classList.remove('visible');
+    showBackdrop();
   }
-  function closeAuthModal(){
-    document.getElementById('backdrop-auth').classList.remove('show');
-    document.getElementById('modal-auth').classList.remove('show');
-  }
-  function switchTab(mode){
-    window._authMode=mode;
-    var isSI=mode==='signin';
-    document.getElementById('tab-signin').classList.toggle('active', isSI);
-    document.getElementById('tab-signup').classList.toggle('active',!isSI);
-    document.getElementById('auth-btn-label').textContent=isSI?'Se connecter':'Cr\u00e9er mon compte';
-    document.getElementById('auth-switch-txt').textContent=isSI?'Pas encore de compte\u00a0?':'D\u00e9j\u00e0 un compte\u00a0?';
-    document.getElementById('auth-switch-btn').textContent=isSI?'S\'inscrire':'Se connecter';
-    document.getElementById('auth-switch-btn').onclick=function(){ switchTab(isSI?'signup':'signin'); };
+  function closeAuthModal(){document.getElementById('auth-modal').classList.remove('show');hideBackdrop();}
+  function clearFeedback(){var e=document.getElementById('auth-feedback');if(e){e.style.display='none';e.textContent='';}}
+
+  function switchAuthTab(tab){
+    window._authTab=tab;
+    var tl=document.getElementById('tab-login'),ts=document.getElementById('tab-signup');
+    var st=document.getElementById('auth-switch-text'),btn=document.getElementById('auth-submit-btn');
     clearFeedback();
-  }
-  function onAuthSubmit(){
-    if(window._authMode==='signin'){ if(window.signIn)window.signIn(); }
-    else{ if(window.signUp)window.signUp(); }
-  }
-  function togglePwd(){
-    var i=document.getElementById('auth-password');
-    i.type=i.type==='password'?'text':'password';
-  }
-  function clearFeedback(){
-    var el=document.getElementById('auth-feedback');
-    if(el){ el.textContent=''; el.style.display='none'; }
+    if(tab==='login'){
+      tl.classList.add('active');ts.classList.remove('active');
+      btn.innerHTML='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Se connecter';
+      st.innerHTML='Pas encore de compte\u00A0? <button onclick="switchAuthTab(\'signup\')" style="color:#f97316;font-weight:600;background:none;border:none;cursor:pointer;font-family:\'DM Sans\',sans-serif;font-size:12.5px;">S\'inscrire</button>';
+    } else {
+      ts.classList.add('active');tl.classList.remove('active');
+      btn.innerHTML='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg> Cr\u00E9er mon compte';
+      st.innerHTML='D\u00E9j\u00E0 un compte\u00A0? <button onclick="switchAuthTab(\'login\')" style="color:#f97316;font-weight:600;background:none;border:none;cursor:pointer;font-family:\'DM Sans\',sans-serif;font-size:12.5px;">Se connecter</button>';
+    }
+    btn.disabled=false;btn.style.background='linear-gradient(135deg,#fb923c,#ea580c)';
   }
 
-  /* -- Modal profil -- */
-  function openProfileModal(){
-    var u=window._currentUser; if(!u)return;
-    document.getElementById('profile-avatar-lg').textContent=u.email.charAt(0).toUpperCase();
-    document.getElementById('profile-email').textContent=u.email;
-    document.getElementById('backdrop-profile').classList.add('show');
-    document.getElementById('modal-profile').classList.add('show');
-  }
-  function closeProfileModal(){
-    document.getElementById('backdrop-profile').classList.remove('show');
-    document.getElementById('modal-profile').classList.remove('show');
+  function submitAuth(){
+    if(window._authTab==='login'){if(window.signIn)window.signIn();}
+    else{if(window.signUp)window.signUp();}
   }
 
-  /* -- Champs -- */
-  function focusWrap(id){ document.getElementById(id).classList.add('focused'); }
-  function blurWrap(id) { document.getElementById(id).classList.remove('focused'); }
+  /* Modale profil */
+  function openProfileModal(user){
+    closeModal();closeAuthModal();
+    document.getElementById('profile-avatar').textContent=user.email.charAt(0).toUpperCase();
+    document.getElementById('profile-email').textContent=user.email;
+    document.getElementById('profile-modal').classList.add('show');
+    showBackdrop();
+  }
+  function closeProfileModal(){document.getElementById('profile-modal').classList.remove('show');hideBackdrop();}
+
+  /* Champs */
+  function focusWrap(id){document.getElementById(id).classList.add('focused');}
+  function blurWrap(id){document.getElementById(id).classList.remove('focused');}
   function shakeWrap(id){
     var el=document.getElementById(id);
-    el.classList.remove('focused'); el.classList.add('errored');
-    setTimeout(function(){ el.classList.remove('errored'); },700);
-  }
-</script>
-</body>
-</html><!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>BricoVoisin</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet" />
-
-  <!-- ═══════════════════════════════════════════════════════════
-       SUPABASE SDK  —  importé via CDN (ESM)
-  ═══════════════════════════════════════════════════════════ -->
-  <script type="module">
-    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
-
-    // ┌─────────────────────────────────────────────────────────┐
-    // │  🔑  COLLEZ VOS CLÉS SUPABASE ICI                      │
-    // │                                                        │
-    // │  Supabase Dashboard > Settings > API                   │
-    // │  → Project URL  (ex: https://xxxx.supabase.co)         │
-    // │  → anon / public key  (commence par "eyJ...")          │
-    // └─────────────────────────────────────────────────────────┘
-    const SUPABASE_URL  = 'https://mltbnvmfhknvrowihjcm.supabase.co';   // ← à remplacer
-    const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1sdGJudm1maGtudnJvd2loamNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4OTYwNzcsImV4cCI6MjA4OTQ3MjA3N30.EqlSPGs7Mow_J_vSXeO-qyeBl_T1DaOvgT5S8lkwMTU';      // ← à remplacer
-
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
-
-    // ─────────────────────────────────────────────────────────
-    //  fetchTools()  —  Interroge la table `tools` et génère
-    //                   les cartes HTML dynamiquement
-    // ─────────────────────────────────────────────────────────
-    async function fetchTools(categorieFiltre = 'tous') {
-      showSkeleton();
-
-      let query = supabase
-        .from('tools')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (categorieFiltre !== 'tous') {
-        query = query.eq('categorie', categorieFiltre);
-      }
-
-      const { data: tools, error } = await query;
-
-      if (error) {
-        console.error('Supabase error:', error.message);
-        showError(error.message);
-        return;
-      }
-
-      renderGrid(tools);
-    }
-
-    // ─────────────────────────────────────────────────────────
-    //  renderGrid()  —  Génère les cartes dans #tools-grid
-    // ─────────────────────────────────────────────────────────
-    function renderGrid(tools) {
-      const grid = document.getElementById('tools-grid');
-
-      if (!tools || tools.length === 0) {
-        grid.innerHTML = `
-          <div style="grid-column:1/-1;text-align:center;padding:32px 0;">
-            <div style="font-size:40px;margin-bottom:8px;">🔍</div>
-            <p style="font-family:'Syne',sans-serif;font-weight:700;color:#1e293b;font-size:15px;">Aucun outil dans cette catégorie</p>
-            <p style="color:#94a3b8;font-size:12.5px;margin-top:4px;">Soyez le premier à proposer !</p>
-          </div>`;
-        return;
-      }
-
-      grid.innerHTML = tools.map(tool => createCardHTML(tool)).join('');
-    }
-
-    // ─────────────────────────────────────────────────────────
-    //  createCardHTML()  —  Retourne le HTML d'une carte outil
-    // ─────────────────────────────────────────────────────────
-    function createCardHTML(tool) {
-      const dispo   = tool.statut === 'disponible';
-      const bgColor = getBgColor(tool.categorie);
-      const badge   = dispo
-        ? `<span class="badge ok">✓</span>`
-        : `<span class="badge no">Loué</span>`;
-      const btn = dispo
-        ? `<button class="btn-rent avail" onclick="sendRent(this, '${escHtml(tool.nom)}')">Louer</button>`
-        : `<button class="btn-rent unavail" disabled>Indispo.</button>`;
-
-      return `
-        <div class="tool-card">
-          <div class="card-img" style="background:${bgColor};">${escHtml(tool.emoji)}</div>
-          <div class="card-body">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin-bottom:4px;">
-              <span class="card-title">${escHtml(tool.nom)}</span>
-              ${badge}
-            </div>
-            <div class="card-dist">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-                <circle cx="12" cy="10" r="3"/>
-              </svg>
-              ${escHtml(tool.distance)}
-            </div>
-            <div class="card-footer">
-              <div class="card-price">
-                <span class="amt">${tool.prix_jour}€</span><span class="unit">/jr</span>
-              </div>
-              ${btn}
-            </div>
-          </div>
-        </div>`;
-    }
-
-    // ─────────────────────────────────────────────────────────
-    //  publishTool()  —  INSERT dans Supabase depuis la modale
-    // ─────────────────────────────────────────────────────────
-    async function publishTool() {
-      const nom       = document.getElementById('input-name').value.trim();
-      const prix_jour = parseFloat(document.getElementById('input-price').value);
-      const emoji     = window._chosenEmoji || '🔧';
-      const categorie = window._chosenCategorie || 'autre';
-
-      if (!nom) { shakeWrap('wrap-name');  document.getElementById('input-name').focus();  return; }
-      if (!prix_jour || prix_jour < 1) { shakeWrap('wrap-price'); document.getElementById('input-price').focus(); return; }
-
-      const btn = document.getElementById('btn-publish');
-      btn.disabled = true;
-      btn.style.background = 'linear-gradient(135deg,#94a3b8,#64748b)';
-      btn.innerHTML = '<span style="font-size:16px;">⏳</span> Publication...';
-
-      const { error } = await supabase
-        .from('tools')
-        .insert([{
-          nom,
-          categorie,
-          prix_jour,
-          emoji,
-          distance: '< 100 m',   // valeur par défaut — à remplacer par géolocalisation
-          statut:   'disponible'
-        }]);
-
-      if (error) {
-        console.error('Insert error:', error.message);
-        btn.disabled = false;
-        btn.style.background = 'linear-gradient(135deg,#f87171,#dc2626)';
-        btn.innerHTML = '⚠️ Erreur — réessayez';
-        setTimeout(resetPublishBtn, 2000);
-        return;
-      }
-
-      btn.style.background = 'linear-gradient(135deg,#4ade80,#16a34a)';
-      btn.style.boxShadow  = '0 6px 20px rgba(34,197,94,0.26)';
-      btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Publié !';
-
-      setTimeout(function() {
-        closeModal();
-        showToast(emoji + ' « ' + nom + ' » publié avec succès !');
-        fetchTools();           // ← Recharge la grille avec la nouvelle annonce
-        setTimeout(resetPublishBtn, 500);
-      }, 850);
-    }
-
-    // ─────────────────────────────────────────────────────────
-    //  Helpers
-    // ─────────────────────────────────────────────────────────
-    function getBgColor(cat) {
-      const map = { percage:'#fff7ed', jardin:'#f0fdf4', decoupe:'#fef2f2', peinture:'#eff6ff', nettoyage:'#f0fdfa' };
-      return map[cat] || '#f8fafc';
-    }
-
-    function escHtml(str) {
-      return String(str)
-        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
-
-    function showSkeleton() {
-      const grid = document.getElementById('tools-grid');
-      grid.innerHTML = Array(4).fill(`
-        <div class="tool-card" style="opacity:0.5;pointer-events:none;">
-          <div class="card-img" style="background:#f1f5f9;animation:pulse 1.4s infinite;"></div>
-          <div class="card-body">
-            <div style="height:13px;background:#f1f5f9;border-radius:6px;width:70%;margin-bottom:8px;animation:pulse 1.4s infinite;"></div>
-            <div style="height:10px;background:#f1f5f9;border-radius:6px;width:40%;margin-bottom:10px;animation:pulse 1.4s infinite;"></div>
-            <div style="height:10px;background:#f1f5f9;border-radius:6px;width:55%;animation:pulse 1.4s infinite;"></div>
-          </div>
-        </div>`).join('');
-    }
-
-    function showError(msg) {
-      const grid = document.getElementById('tools-grid');
-      grid.innerHTML = `
-        <div style="grid-column:1/-1;text-align:center;padding:24px 0;">
-          <div style="font-size:36px;margin-bottom:8px;">⚠️</div>
-          <p style="font-family:'Syne',sans-serif;font-weight:700;color:#dc2626;font-size:14px;">Connexion Supabase impossible</p>
-          <p style="color:#94a3b8;font-size:11.5px;margin-top:4px;padding:0 16px;">${escHtml(msg)}</p>
-          <p style="color:#94a3b8;font-size:11px;margin-top:6px;">Vérifiez vos clés API dans le fichier HTML.</p>
-        </div>`;
-    }
-
-    // ─────────────────────────────────────────────────────────
-    //  Exposition des fonctions au scope global (onclick="...")
-    // ─────────────────────────────────────────────────────────
-    window.fetchTools   = fetchTools;
-    window.publishTool  = publishTool;
-
-    // ─────────────────────────────────────────────────────────
-    //  Initialisation au chargement de la page
-    // ─────────────────────────────────────────────────────────
-    document.addEventListener('DOMContentLoaded', function() {
-      fetchTools();
-    });
-  </script>
-
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body {
-      background: #f1f5f9;
-      font-family: 'DM Sans', sans-serif;
-      -webkit-font-smoothing: antialiased;
-      min-height: 100vh;
-      display: flex; align-items: center; justify-content: center;
-      padding: 32px 16px;
-    }
-
-    @keyframes pulse {
-      0%,100% { opacity:1; } 50% { opacity:0.4; }
-    }
-
-    /* ── Phone shell ── */
-    .phone {
-      width: 390px; height: 844px;
-      background: #ffffff; border-radius: 48px; overflow: hidden;
-      box-shadow: 0 32px 80px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06);
-      position: relative; display: flex; flex-direction: column;
-    }
-    .notch {
-      position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-      width: 126px; height: 34px; background: #0f172a;
-      border-radius: 0 0 20px 20px; z-index: 50;
-    }
-    .scroll-area {
-      flex: 1; overflow-y: auto; overflow-x: hidden;
-      scrollbar-width: none; padding-bottom: 88px;
-    }
-    .scroll-area::-webkit-scrollbar { display: none; }
-
-    /* ── Search ── */
-    .search-bar {
-      display: flex; align-items: center; gap: 10px;
-      background: #f8fafc; border: 1.5px solid #e2e8f0;
-      border-radius: 14px; padding: 12px 14px;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-    .search-bar:focus-within { border-color: #f97316; box-shadow: 0 0 0 3px rgba(249,115,22,0.12); }
-    .search-bar input {
-      flex: 1; background: transparent; border: none; outline: none;
-      font-family: 'DM Sans', sans-serif; font-size: 13.5px; color: #1e293b;
-    }
-    .search-bar input::placeholder { color: #94a3b8; }
-
-    /* ── Pills ── */
-    .pill {
-      border-radius: 100px; padding: 7px 16px;
-      font-size: 13px; font-weight: 500; white-space: nowrap;
-      cursor: pointer; border: none; font-family: 'DM Sans', sans-serif;
-      transition: all 0.18s ease;
-    }
-    .pill.active   { background: #f97316; color: white; }
-    .pill.inactive { background: #f1f5f9; color: #64748b; }
-    .pill.inactive:hover { background: #ffedd5; color: #c2410c; }
-
-    /* ── Tool card ── */
-    .tool-card {
-      background: #ffffff; border-radius: 20px; overflow: hidden;
-      box-shadow: 0 2px 14px rgba(0,0,0,0.07), 0 1px 3px rgba(0,0,0,0.04);
-      transition: transform 0.2s cubic-bezier(.34,1.56,.64,1), box-shadow 0.2s;
-      cursor: pointer;
-    }
-    .tool-card:active { transform: scale(0.97); box-shadow: 0 4px 20px rgba(0,0,0,0.10); }
-    .card-img {
-      width: 100%; height: 100px;
-      display: flex; align-items: center; justify-content: center; font-size: 42px;
-    }
-    .card-body { padding: 10px; }
-    .card-title {
-      font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700;
-      color: #1e293b; line-height: 1.3; margin-bottom: 4px;
-    }
-    .card-dist {
-      display: flex; align-items: center; gap: 3px;
-      font-size: 11px; color: #94a3b8; margin-bottom: 8px;
-    }
-    .card-footer { display: flex; align-items: center; justify-content: space-between; }
-    .card-price  { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; color: #1e293b; }
-    .card-price .amt  { color: #f97316; }
-    .card-price .unit { font-size: 10px; font-weight: 400; color: #94a3b8; }
-
-    .btn-rent {
-      border: none; border-radius: 8px; padding: 5px 11px;
-      font-size: 11.5px; font-weight: 600; cursor: pointer;
-      font-family: 'DM Sans', sans-serif; transition: all 0.18s;
-    }
-    .btn-rent.avail   { background: #fff7ed; color: #f97316; }
-    .btn-rent.unavail { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
-    .btn-rent.sent    { background: #dcfce7; color: #16a34a; cursor: default; }
-
-    .badge { font-size: 10.5px; font-weight: 600; padding: 3px 8px; border-radius: 100px; }
-    .badge.ok { background: #dcfce7; color: #16a34a; }
-    .badge.no { background: #fee2e2; color: #dc2626; }
-
-    /* ── Featured ── */
-    .featured {
-      border-radius: 20px; overflow: hidden; position: relative; height: 168px;
-      background: linear-gradient(120deg,#1e293b,#334155);
-      box-shadow: 0 4px 20px rgba(249,115,22,0.18); cursor: pointer;
-    }
-    .feat-bg {
-      position: absolute; right: -10px; bottom: -14px;
-      font-size: 110px; opacity: 0.10; line-height: 1;
-      transform: rotate(-12deg); pointer-events: none; user-select: none;
-    }
-    .feat-body {
-      position: absolute; inset: 0; padding: 18px 20px;
-      display: flex; flex-direction: column; justify-content: space-between;
-    }
-
-    /* ── Recent scroll ── */
-    .recent-scroll {
-      display: flex; gap: 12px; overflow-x: auto;
-      scrollbar-width: none; padding-bottom: 4px;
-    }
-    .recent-scroll::-webkit-scrollbar { display: none; }
-    .recent-card { flex-shrink: 0; width: 130px; }
-
-    /* ── Bottom nav ── */
-    .bottom-nav {
-      position: absolute; bottom: 0; left: 0; right: 0; height: 80px;
-      background: rgba(255,255,255,0.96);
-      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-      border-top: 1px solid rgba(0,0,0,0.06);
-      display: flex; align-items: center; justify-content: space-around;
-      padding: 0 8px 10px; z-index: 40;
-    }
-    .nav-item {
-      display: flex; flex-direction: column; align-items: center; gap: 3px;
-      cursor: pointer; padding: 6px 10px; border-radius: 12px; transition: background 0.15s;
-    }
-    .nav-item:active { background: #fff7ed; }
-    .nav-lbl { font-size: 10.5px; font-weight: 500; }
-
-    .avatar {
-      width: 38px; height: 38px; border-radius: 50%;
-      background: linear-gradient(135deg,#fb923c,#ea580c);
-      display: flex; align-items: center; justify-content: center;
-      color: white; font-weight: 700; font-size: 14px;
-      font-family: 'Syne', sans-serif; flex-shrink: 0;
-    }
-
-    /* ── Animations ── */
-    @keyframes fadeUp {
-      from { opacity:0; transform:translateY(16px); }
-      to   { opacity:1; transform:translateY(0); }
-    }
-    .fu  { animation: fadeUp 0.4s cubic-bezier(.22,1,.36,1) both; }
-    .d1  { animation-delay:.05s; } .d2 { animation-delay:.10s; }
-    .d3  { animation-delay:.15s; } .d4 { animation-delay:.20s; }
-
-    /* ── Toast ── */
-    #toast {
-      position: fixed; bottom: 104px; left: 50%;
-      transform: translateX(-50%) translateY(20px);
-      background: #1e293b; color: white; padding: 11px 18px;
-      border-radius: 14px; font-family: 'DM Sans', sans-serif;
-      font-size: 13px; font-weight: 500;
-      display: flex; align-items: center; gap: 9px;
-      box-shadow: 0 8px 28px rgba(0,0,0,0.18); opacity: 0; pointer-events: none;
-      transition: opacity 0.28s ease, transform 0.28s cubic-bezier(.34,1.56,.64,1);
-      z-index: 9999; white-space: nowrap;
-    }
-    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
-    .toast-icon {
-      width: 22px; height: 22px; background: linear-gradient(135deg,#fb923c,#ea580c);
-      border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-    }
-
-    /* ── Modal ── */
-    #backdrop {
-      position: fixed; inset: 0; background: rgba(15,23,42,0.55);
-      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-      opacity: 0; pointer-events: none; transition: opacity 0.3s ease; z-index: 1000;
-    }
-    #backdrop.show { opacity: 1; pointer-events: auto; }
-
-    #modal {
-      position: fixed; bottom: 0; left: 50%;
-      transform: translateX(-50%) translateY(100%);
-      width: 390px; max-width: 100vw; background: white;
-      border-radius: 28px 28px 0 0; padding-bottom: 36px;
-      box-shadow: 0 -8px 40px rgba(0,0,0,0.14);
-      transition: transform 0.38s cubic-bezier(.32,1.25,.64,1); z-index: 1001;
-    }
-    #modal.show { transform: translateX(-50%) translateY(0); }
-
-    .modal-handle { display: flex; justify-content: center; padding: 14px 0 4px; }
-    .modal-handle-bar { width: 36px; height: 4px; background: #e2e8f0; border-radius: 100px; }
-    .modal-head {
-      display: flex; align-items: flex-start; justify-content: space-between;
-      padding: 10px 22px 18px;
-    }
-    .modal-title { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 700; color: #1e293b; letter-spacing: -0.3px; }
-    .modal-sub   { font-size: 12.5px; color: #94a3b8; margin-top: 2px; }
-    .modal-close-btn {
-      width: 32px; height: 32px; background: #f1f5f9;
-      border: none; border-radius: 10px; cursor: pointer;
-      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-    }
-    .modal-body { padding: 0 22px; display: flex; flex-direction: column; gap: 14px; }
-
-    .field-lbl {
-      font-size: 11px; font-weight: 600; color: #94a3b8;
-      text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px;
-    }
-    .field-wrap {
-      display: flex; align-items: center; gap: 10px;
-      background: #f8fafc; border: 1.5px solid #e2e8f0;
-      border-radius: 13px; padding: 12px 14px;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-    .field-wrap.focused { border-color: #f97316; box-shadow: 0 0 0 3px rgba(249,115,22,0.12); }
-    .field-wrap.errored { border-color: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.12); animation: shake .38s ease; }
-    .field-wrap input {
-      flex: 1; background: transparent; border: none; outline: none;
-      font-family: 'DM Sans', sans-serif; font-size: 14px; color: #1e293b;
-    }
-
-    .emoji-row { display: flex; gap: 9px; }
-    .emoji-btn {
-      font-size: 22px; width: 46px; height: 46px;
-      border-radius: 13px; border: 2px solid #e2e8f0;
-      background: #f8fafc; cursor: pointer; transition: all 0.18s;
-    }
-    .emoji-btn.active { border-color: #f97316; background: #fff7ed; }
-
-    .btn-publish {
-      width: 100%; padding: 15px;
-      background: linear-gradient(135deg,#fb923c,#ea580c);
-      color: white; border: none; border-radius: 15px;
-      font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700;
-      cursor: pointer; box-shadow: 0 6px 20px rgba(249,115,22,0.28);
-      display: flex; align-items: center; justify-content: center; gap: 8px;
-      transition: transform 0.18s, background 0.3s, box-shadow 0.3s; margin-top: 4px;
-    }
-    .btn-publish:active { transform: scale(0.97); }
-
-    @keyframes shake {
-      0%,100% { transform:translateX(0); }
-      20%     { transform:translateX(-5px); }
-      40%     { transform:translateX(5px); }
-      60%     { transform:translateX(-3px); }
-      80%     { transform:translateX(3px); }
-    }
-  </style>
-</head>
-<body>
-
-<!-- ════════════ PHONE ════════════ -->
-<div class="phone">
-  <div class="notch"></div>
-
-  <!-- HEADER -->
-  <header style="padding:44px 22px 12px;background:white;position:relative;z-index:30;" class="fu">
-    <div style="display:flex;align-items:center;justify-content:space-between;">
-      <div style="display:flex;align-items:center;gap:8px;">
-        <div style="width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#fb923c,#ea580c);display:flex;align-items:center;justify-content:center;">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-          </svg>
-        </div>
-        <span style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:#1e293b;letter-spacing:-0.5px;">Brico<span style="color:#f97316;">Voisin</span></span>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;">
-        <button style="position:relative;width:36px;height:36px;border-radius:10px;background:#f8fafc;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-          </svg>
-          <span style="position:absolute;top:7px;right:7px;width:7px;height:7px;background:#f97316;border-radius:50%;border:1.5px solid white;"></span>
-        </button>
-        <div class="avatar">M</div>
-      </div>
-    </div>
-    <div style="margin-top:18px;">
-      <p style="font-size:13px;color:#94a3b8;">Bonjour, Marc 👋</p>
-      <h1 style="font-family:'Syne',sans-serif;font-size:21px;font-weight:700;color:#1e293b;letter-spacing:-0.4px;line-height:1.25;margin-top:3px;">
-        Trouvez l'outil qu'il<br/>vous faut aujourd'hui
-      </h1>
-    </div>
-  </header>
-
-  <!-- SCROLL AREA -->
-  <div class="scroll-area">
-
-    <!-- Search -->
-    <div style="padding:4px 22px 0;" class="fu d1">
-      <div class="search-bar">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <input type="text" placeholder="De quel outil avez-vous besoin ?" />
-        <button style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#fb923c,#ea580c);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-
-    <!-- Pills — onclick appelle fetchTools() avec le filtre -->
-    <div style="padding:14px 0 0;overflow-x:auto;scrollbar-width:none;" class="fu d2">
-      <div id="pill-bar" style="display:flex;gap:8px;padding:0 22px;">
-        <button class="pill active"   onclick="selectPill(this,'tous')">Tous</button>
-        <button class="pill inactive" onclick="selectPill(this,'percage')">🔨 Perçage</button>
-        <button class="pill inactive" onclick="selectPill(this,'jardin')">🌿 Jardin</button>
-        <button class="pill inactive" onclick="selectPill(this,'decoupe')">🪚 Découpe</button>
-        <button class="pill inactive" onclick="selectPill(this,'peinture')">🎨 Peinture</button>
-      </div>
-    </div>
-
-    <!-- Featured (statique) -->
-    <div style="padding:16px 22px 0;" class="fu d2">
-      <div class="featured">
-        <div class="feat-bg">🔧</div>
-        <div class="feat-body">
-          <div>
-            <span style="background:rgba(249,115,22,0.2);color:#fb923c;font-size:10.5px;font-weight:600;padding:4px 10px;border-radius:100px;letter-spacing:0.3px;">À LA UNE</span>
-            <h2 style="font-family:'Syne',sans-serif;font-size:19px;font-weight:700;color:white;margin-top:9px;letter-spacing:-0.3px;line-height:1.2;">
-              Karcher K4<br/>Nettoyeur haute pression
-            </h2>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;">
-            <div>
-              <p style="color:rgba(255,255,255,0.5);font-size:11.5px;margin-bottom:2px;">à 350 m · Disponible</p>
-              <p style="font-family:'Syne',sans-serif;font-size:21px;font-weight:700;color:white;">
-                <span style="color:#fb923c;">8€</span><span style="font-size:12px;font-weight:400;color:rgba(255,255,255,0.5);">/jour</span>
-              </p>
-            </div>
-            <button onclick="sendRent(this,'Karcher K4')" style="background:linear-gradient(135deg,#fb923c,#ea580c);color:white;border:none;border-radius:11px;padding:10px 18px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">
-              Réserver →
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Section: Près de vous  ← GRILLE DYNAMIQUE -->
-    <div style="padding:22px 22px 0;" class="fu d3">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-        <span style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:#1e293b;letter-spacing:-0.3px;">Près de vous</span>
-        <button style="color:#f97316;font-size:13px;font-weight:500;background:none;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;">Voir tout</button>
-      </div>
-
-      <!--
-        🎯 C'est ici que les cartes sont injectées par fetchTools()
-        L'id "tools-grid" est ciblé par renderGrid() dans le JS
-      -->
-      <div id="tools-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        <!-- Rempli dynamiquement par Supabase -->
-      </div>
-    </div>
-
-    <div style="height:16px;"></div>
-  </div>
-  <!-- end .scroll-area -->
-
-  <!-- BOTTOM NAV -->
-  <nav class="bottom-nav">
-    <div class="nav-item">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-      </svg>
-      <span class="nav-lbl" style="color:#f97316;">Explorer</span>
-      <div style="width:4px;height:4px;background:#f97316;border-radius:50%;"></div>
-    </div>
-    <div class="nav-item">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-      </svg>
-      <span class="nav-lbl" style="color:#94a3b8;">Mes Outils</span>
-    </div>
-    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
-      <button onclick="openModal()" style="width:52px;height:52px;background:linear-gradient(135deg,#fb923c,#ea580c);border:none;border-radius:16px;box-shadow:0 6px 20px rgba(249,115,22,0.36);cursor:pointer;display:flex;align-items:center;justify-content:center;margin-top:-16px;transition:transform 0.18s;">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-      </button>
-      <span class="nav-lbl" style="color:#94a3b8;">Proposer</span>
-    </div>
-    <div class="nav-item">
-      <div style="position:relative;">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-        </svg>
-        <span style="position:absolute;top:-2px;right:-2px;width:7px;height:7px;background:#f97316;border-radius:50%;border:1.5px solid white;"></span>
-      </div>
-      <span class="nav-lbl" style="color:#94a3b8;">Messages</span>
-    </div>
-    <div class="nav-item">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-        <circle cx="12" cy="7" r="4"/>
-      </svg>
-      <span class="nav-lbl" style="color:#94a3b8;">Profil</span>
-    </div>
-  </nav>
-</div>
-<!-- end .phone -->
-
-
-<!-- ════════════ TOAST ════════════ -->
-<div id="toast">
-  <div class="toast-icon">
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="20 6 9 17 4 12"/>
-    </svg>
-  </div>
-  <span id="toast-text">Demande de location envoyée !</span>
-</div>
-
-
-<!-- ════════════ MODAL ════════════ -->
-<div id="backdrop" onclick="closeModal()"></div>
-<div id="modal">
-  <div class="modal-handle"><div class="modal-handle-bar"></div></div>
-  <div class="modal-head">
-    <div>
-      <div class="modal-title">Proposer un outil</div>
-      <div class="modal-sub">Visible dans un rayon de 2 km</div>
-    </div>
-    <button class="modal-close-btn" onclick="closeModal()">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5" stroke-linecap="round">
-        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-      </svg>
-    </button>
-  </div>
-  <div class="modal-body">
-    <div>
-      <div class="field-lbl">Catégorie</div>
-      <div class="emoji-row">
-        <button class="emoji-btn active" onclick="pickEmoji(this,'🔩','percage')">🔩</button>
-        <button class="emoji-btn"        onclick="pickEmoji(this,'🌿','jardin')">🌿</button>
-        <button class="emoji-btn"        onclick="pickEmoji(this,'🪚','decoupe')">🪚</button>
-        <button class="emoji-btn"        onclick="pickEmoji(this,'🎨','peinture')">🎨</button>
-        <button class="emoji-btn"        onclick="pickEmoji(this,'🔧','autre')">🔧</button>
-      </div>
-    </div>
-    <div>
-      <div class="field-lbl">Nom de l'outil</div>
-      <div class="field-wrap" id="wrap-name">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
-          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-        </svg>
-        <input id="input-name" type="text" placeholder="ex: Perceuse Bosch 18V"
-          onfocus="focusWrap('wrap-name')" onblur="blurWrap('wrap-name')" />
-      </div>
-    </div>
-    <div>
-      <div class="field-lbl">Prix par jour</div>
-      <div class="field-wrap" id="wrap-price">
-        <span style="font-family:'Syne',sans-serif;font-weight:700;color:#f97316;font-size:17px;flex-shrink:0;">€</span>
-        <input id="input-price" type="number" min="1" placeholder="5"
-          style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;width:60px;"
-          onfocus="focusWrap('wrap-price')" onblur="blurWrap('wrap-price')" />
-        <span style="font-size:12px;color:#94a3b8;font-weight:500;margin-left:auto;">/jour</span>
-      </div>
-    </div>
-    <button class="btn-publish" id="btn-publish" onclick="publishTool()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-      </svg>
-      Publier l'annonce
-    </button>
-  </div>
-</div>
-
-
-<!-- ════════════ JS GLOBAL (UI uniquement, sans Supabase) ════════════ -->
-<script>
-  /* publishTool() et fetchTools() sont définis dans le module ES6 ci-dessus
-     et exposés via window.publishTool / window.fetchTools               */
-
-  window._chosenEmoji     = '🔩';
-  window._chosenCategorie = 'percage';
-
-  /* ── Pills ── */
-  function selectPill(el, categorie) {
-    document.querySelectorAll('#pill-bar .pill').forEach(function(p) {
-      p.classList.remove('active'); p.classList.add('inactive');
-    });
-    el.classList.remove('inactive'); el.classList.add('active');
-    el.style.transform = 'scale(0.92)';
-    setTimeout(function() { el.style.transform = ''; }, 200);
-    if (window.fetchTools) window.fetchTools(categorie);
+    el.classList.remove('focused');el.classList.add('errored');
+    setTimeout(function(){el.classList.remove('errored');},700);
   }
 
-  /* ── Toast ── */
-  var _toastTimer = null;
-  function showToast(msg) {
-    var t = document.getElementById('toast');
-    document.getElementById('toast-text').textContent = msg;
-    t.classList.add('show');
-    if (_toastTimer) clearTimeout(_toastTimer);
-    _toastTimer = setTimeout(function() { t.classList.remove('show'); }, 3000);
-  }
-
-  /* ── Rent button ── */
-  function sendRent(btn, toolName) {
-    if (btn.classList.contains('sent') || btn.disabled) return;
-    btn.classList.remove('avail'); btn.classList.add('sent');
-    btn.textContent = '✓ Envoyé'; btn.onclick = null;
-    showToast('Demande envoyée pour : ' + toolName + ' !');
-  }
-
-  /* ── Modal ── */
-  function openModal() {
-    document.getElementById('backdrop').classList.add('show');
-    document.getElementById('modal').classList.add('show');
-    document.getElementById('input-name').value  = '';
-    document.getElementById('input-price').value = '';
-    resetPublishBtn();
-  }
-  function closeModal() {
-    document.getElementById('backdrop').classList.remove('show');
-    document.getElementById('modal').classList.remove('show');
-  }
-  function pickEmoji(btn, emoji, categorie) {
-    window._chosenEmoji     = emoji;
-    window._chosenCategorie = categorie;
-    document.querySelectorAll('.emoji-btn').forEach(function(b) { b.classList.remove('active'); });
+  /* Emoji */
+  function pickEmoji(btn,emoji,cat){
+    window._chosenEmoji=emoji;window._chosenCategorie=cat;
+    document.querySelectorAll('.emoji-btn').forEach(function(b){b.classList.remove('active');});
     btn.classList.add('active');
   }
-  function focusWrap(id) { document.getElementById(id).classList.add('focused'); }
-  function blurWrap(id)  { document.getElementById(id).classList.remove('focused'); }
-  function shakeWrap(id) {
-    var el = document.getElementById(id);
-    el.classList.remove('focused'); el.classList.add('errored');
-    setTimeout(function() { el.classList.remove('errored'); }, 700);
-  }
-  function resetPublishBtn() {
-    var btn = document.getElementById('btn-publish');
-    btn.disabled = false;
-    btn.style.background = 'linear-gradient(135deg,#fb923c,#ea580c)';
-    btn.style.boxShadow  = '0 6px 20px rgba(249,115,22,0.28)';
-    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Publier l\'annonce';
+
+  /* Publish */
+  function resetPublishBtn(){
+    var btn=document.getElementById('btn-publish');
+    if(!btn)return;
+    btn.disabled=false;
+    btn.style.background='linear-gradient(135deg,#fb923c,#ea580c)';
+    btn.style.boxShadow='0 6px 20px rgba(249,115,22,.28)';
+    btn.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Publier l\'annonce';
   }
 </script>
-
 </body>
 </html>
