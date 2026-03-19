@@ -9,62 +9,75 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet" />
 
-  <!-- SUPABASE SDK ESM -->
+  <!-- =====================================================
+       SUPABASE SDK — ESM
+       Supabase Dashboard > Storage > New bucket
+       Nom du bucket : tool-images  (public)
+
+       SQL a executer une seule fois :
+       ALTER TABLE tools ADD COLUMN IF NOT EXISTS image_url text;
+  ===================================================== -->
   <script type="module">
     import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
-    /* ===== CLES SUPABASE ===== */
+    /* =====================================================
+       CLES API — Dashboard > Settings > API
+    ===================================================== */
     const SUPABASE_URL  = 'https://mltbnvmfhknvrowihjcm.supabase.co';
     const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1sdGJudm1maGtudnJvd2loamNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4OTYwNzcsImV4cCI6MjA4OTQ3MjA3N30.EqlSPGs7Mow_J_vSXeO-qyeBl_T1DaOvgT5S8lkwMTU';
+
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
+    const BUCKET   = 'tool-images';   // bucket Supabase Storage (doit etre public)
 
     let currentUser = null;
 
-    /* ===== AUTH STATE LISTENER ===== */
+    /* =====================================================
+       AUTH STATE
+    ===================================================== */
     supabase.auth.onAuthStateChange(function(_event, session) {
       currentUser = session ? session.user : null;
       updateAuthUI(currentUser);
     });
 
     function updateAuthUI(user) {
-      const avatarEl   = document.getElementById('header-avatar');
-      const greetEl    = document.getElementById('header-greeting');
-      const navProfil  = document.getElementById('nav-profil');
-      const fabBtn     = document.getElementById('fab-proposer');
+      const avatarEl  = document.getElementById('header-avatar');
+      const greetEl   = document.getElementById('header-greeting');
+      const navProfil = document.getElementById('nav-profil');
+      const fabBtn    = document.getElementById('fab-proposer');
       if (!avatarEl) return;
-
       if (user) {
         const initiale = user.email.charAt(0).toUpperCase();
         const pseudo   = user.email.split('@')[0];
-        avatarEl.textContent   = initiale;
+        avatarEl.textContent      = initiale;
         avatarEl.style.background = 'linear-gradient(135deg,#fb923c,#ea580c)';
-        greetEl.textContent    = 'Bonjour, ' + pseudo + ' \u{1F44B}';
-        navProfil.onclick      = function() { openProfileModal(user); };
-        fabBtn.onclick         = function() { openModal(); };
+        greetEl.textContent       = 'Bonjour, ' + pseudo + ' \u{1F44B}';
+        navProfil.onclick         = function() { openProfileModal(user); };
+        fabBtn.onclick            = function() { openModal(); };
         closeAuthModal();
       } else {
-        avatarEl.textContent   = '?';
+        avatarEl.textContent      = '?';
         avatarEl.style.background = '#cbd5e1';
-        greetEl.textContent    = 'Bonjour \u{1F44B}';
-        navProfil.onclick      = function() { openAuthModal(); };
-        fabBtn.onclick         = function() { openAuthModal('proposer'); };
+        greetEl.textContent       = 'Bonjour \u{1F44B}';
+        navProfil.onclick         = function() { openAuthModal(); };
+        fabBtn.onclick            = function() { openAuthModal('proposer'); };
       }
     }
 
-    /* ===== SIGN UP ===== */
+    /* =====================================================
+       SIGN UP / SIGN IN / SIGN OUT
+    ===================================================== */
     async function signUp() {
       const email    = document.getElementById('auth-email').value.trim();
       const password = document.getElementById('auth-password').value;
-      if (!email)              { shakeWrap('wrap-auth-email'); return; }
-      if (password.length < 6) { shakeWrap('wrap-auth-password'); showAuthError('Mot de passe : 6 caracteres minimum.'); return; }
+      if (!email)              { shakeWrap('wrap-auth-email');    return; }
+      if (password.length < 6) { shakeWrap('wrap-auth-password'); showAuthMsg('Le mot de passe doit faire au moins 6 caracteres.', 'error'); return; }
       setAuthLoading(true, 'Inscription...');
       const { error } = await supabase.auth.signUp({ email, password });
       setAuthLoading(false);
-      if (error) { showAuthError(authErrMsg(error.message)); return; }
-      showAuthSuccess('\u2705 Compte cree ! Verifiez votre email pour confirmer.');
+      if (error) { showAuthMsg(fmtAuthErr(error.message), 'error'); return; }
+      showAuthMsg('\u2705 Compte cree ! Verifiez votre email.', 'success');
     }
 
-    /* ===== SIGN IN ===== */
     async function signIn() {
       const email    = document.getElementById('auth-email').value.trim();
       const password = document.getElementById('auth-password').value;
@@ -73,27 +86,24 @@
       setAuthLoading(true, 'Connexion...');
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       setAuthLoading(false);
-      if (error) { showAuthError(authErrMsg(error.message)); return; }
+      if (error) { showAuthMsg(fmtAuthErr(error.message), 'error'); return; }
       showToast('\u{1F389} Bienvenue sur BricoVoisin !');
     }
 
-    /* ===== SIGN OUT ===== */
     async function signOut() {
       await supabase.auth.signOut();
       closeProfileModal();
       showToast('\u{1F44B} Vous etes deconnecte(e).');
     }
 
-    /* ===== AUTH HELPERS ===== */
     function setAuthLoading(on, label) {
       const btn = document.getElementById('auth-submit-btn');
       btn.disabled = on;
-      if (on) {
-        btn.innerHTML = '<span>\u23F3</span> ' + label;
-        btn.style.background = 'linear-gradient(135deg,#94a3b8,#64748b)';
-      } else {
-        refreshAuthBtn();
-      }
+      btn.style.background = on
+        ? 'linear-gradient(135deg,#94a3b8,#64748b)'
+        : 'linear-gradient(135deg,#fb923c,#ea580c)';
+      if (on) btn.innerHTML = '<span>\u23F3</span> ' + label;
+      else    refreshAuthBtn();
     }
     function refreshAuthBtn() {
       const btn = document.getElementById('auth-submit-btn');
@@ -104,24 +114,76 @@
         ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Se connecter'
         : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg> Creer mon compte';
     }
-    function showAuthError(msg) {
+    function showAuthMsg(msg, type) {
       const el = document.getElementById('auth-feedback');
-      el.style.cssText = 'display:block;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:10px;padding:10px 14px;font-size:12.5px;font-weight:500;margin-top:4px;';
+      el.style.cssText = 'display:block;border-radius:10px;padding:10px 14px;font-size:12.5px;font-weight:500;margin-top:4px;'
+        + (type === 'error'
+          ? 'background:#fef2f2;color:#dc2626;border:1px solid #fecaca;'
+          : 'background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;');
       el.textContent = msg;
     }
-    function showAuthSuccess(msg) {
-      const el = document.getElementById('auth-feedback');
-      el.style.cssText = 'display:block;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;border-radius:10px;padding:10px 14px;font-size:12.5px;font-weight:500;margin-top:4px;';
-      el.textContent = msg;
-    }
-    function authErrMsg(m) {
+    function fmtAuthErr(m) {
       if (m.includes('Invalid login'))       return '\u274C Email ou mot de passe incorrect.';
       if (m.includes('already registered'))  return '\u26A0\uFE0F Email deja utilise.';
       if (m.includes('Email not confirmed')) return '\u{1F4E7} Confirmez votre email d\'abord.';
       return '\u26A0\uFE0F ' + m;
     }
 
-    /* ===== TOOLS ===== */
+    /* =====================================================
+       IMAGE UPLOAD — Supabase Storage
+    ===================================================== */
+
+    // Fichier selectionne par l'utilisateur (conserve en memoire)
+    let _selectedFile = null;
+
+    // Appele quand l'input file change
+    function onFileSelected(input) {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) {
+        showToast('\u26A0\uFE0F Veuillez selectionner une image.');
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        showToast('\u26A0\uFE0F Image trop lourde (max 5 Mo).');
+        return;
+      }
+      _selectedFile = file;
+
+      // Affiche la miniature
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const preview   = document.getElementById('img-preview');
+        const container = document.getElementById('img-preview-wrap');
+        const placeholder = document.getElementById('img-placeholder');
+        preview.src              = e.target.result;
+        container.style.display  = 'flex';
+        placeholder.style.display = 'none';
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Upload vers Supabase Storage, retourne l'URL publique
+    async function uploadImage(file, toolName) {
+      // Nom de fichier unique : timestamp + nom nettoye
+      const ext      = file.name.split('.').pop().toLowerCase();
+      const safeName = toolName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
+      const path     = Date.now() + '_' + safeName + '.' + ext;
+
+      const { error: upErr } = await supabase.storage
+        .from(BUCKET)
+        .upload(path, file, { cacheControl: '3600', upsert: false });
+
+      if (upErr) throw new Error('Upload Storage : ' + upErr.message);
+
+      // Recupere l'URL publique
+      const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+      return data.publicUrl;
+    }
+
+    /* =====================================================
+       FETCH TOOLS — grille dynamique
+    ===================================================== */
     async function fetchTools(cat) {
       if (cat === undefined) cat = 'tous';
       showSkeleton();
@@ -135,7 +197,7 @@
     function renderGrid(tools) {
       const grid = document.getElementById('tools-grid');
       if (!tools || !tools.length) {
-        grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:32px 0;"><div style="font-size:40px;margin-bottom:8px;">\u{1F50D}</div><p style="font-family:\'Syne\',sans-serif;font-weight:700;color:#1e293b;font-size:15px;">Aucun outil dans cette categorie</p><p style="color:#94a3b8;font-size:12.5px;margin-top:4px;">Soyez le premier a proposer !</p></div>';
+        grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:32px 0;"><div style="font-size:40px;margin-bottom:8px;">\u{1F50D}</div><p style="font-family:\'Syne\',sans-serif;font-weight:700;color:#1e293b;font-size:15px;">Aucun outil dans cette cat\u00E9gorie</p><p style="color:#94a3b8;font-size:12.5px;margin-top:4px;">Soyez le premier \u00E0 proposer !</p></div>';
         return;
       }
       grid.innerHTML = tools.map(createCardHTML).join('');
@@ -143,15 +205,21 @@
 
     function createCardHTML(t) {
       const dispo = t.statut === 'disponible';
+      // ----- AFFICHAGE : photo reelle OU emoji de secours -----
+      const visual = t.image_url
+        ? '<img src="' + esc(t.image_url) + '" alt="' + esc(t.nom) + '" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentNode.innerHTML=\'<span style=font-size:42px>' + (t.emoji || '\u{1F527}') + '</span>\'" />'
+        : '<span style="font-size:42px;">' + esc(t.emoji || '\u{1F527}') + '</span>';
+
       const bg    = { percage:'#fff7ed', jardin:'#f0fdf4', decoupe:'#fef2f2', peinture:'#eff6ff', nettoyage:'#f0fdfa' }[t.categorie] || '#f8fafc';
       const badge = dispo ? '<span class="badge ok">\u2713</span>' : '<span class="badge no">Lou\u00E9</span>';
       const btn   = dispo
         ? '<button class="btn-rent avail" onclick="sendRent(this,\'' + esc(t.nom) + '\')">Louer</button>'
         : '<button class="btn-rent unavail" disabled>Indispo.</button>';
-      return '<div class="tool-card"><div class="card-img" style="background:' + bg + ';">' + esc(t.emoji) + '</div><div class="card-body"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin-bottom:4px;"><span class="card-title">' + esc(t.nom) + '</span>' + badge + '</div><div class="card-dist"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>' + esc(t.distance) + '</div><div class="card-footer"><div class="card-price"><span class="amt">' + t.prix_jour + '€</span><span class="unit">/jr</span></div>' + btn + '</div></div></div>';
+
+      return '<div class="tool-card"><div class="card-img" style="background:' + (t.image_url ? '#f1f5f9' : bg) + ';overflow:hidden;padding:0;">' + visual + '</div><div class="card-body"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin-bottom:4px;"><span class="card-title">' + esc(t.nom) + '</span>' + badge + '</div><div class="card-dist"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>' + esc(t.distance) + '</div><div class="card-footer"><div class="card-price"><span class="amt">' + t.prix_jour + '\u20AC</span><span class="unit">/jr</span></div>' + btn + '</div></div></div>';
     }
 
-    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
     function showSkeleton() {
       document.getElementById('tools-grid').innerHTML = Array(4).fill('<div class="tool-card" style="opacity:.5;pointer-events:none;"><div class="card-img" style="background:#f1f5f9;animation:pulse 1.4s infinite;"></div><div class="card-body"><div style="height:13px;background:#f1f5f9;border-radius:6px;width:70%;margin-bottom:8px;animation:pulse 1.4s infinite;"></div><div style="height:10px;background:#f1f5f9;border-radius:6px;width:40%;margin-bottom:10px;animation:pulse 1.4s infinite;"></div><div style="height:10px;background:#f1f5f9;border-radius:6px;width:55%;animation:pulse 1.4s infinite;"></div></div></div>').join('');
@@ -160,37 +228,82 @@
       document.getElementById('tools-grid').innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:24px 0;"><div style="font-size:36px;margin-bottom:8px;">\u26A0\uFE0F</div><p style="font-family:\'Syne\',sans-serif;font-weight:700;color:#dc2626;font-size:14px;">Connexion Supabase impossible</p><p style="color:#94a3b8;font-size:11.5px;margin-top:4px;">' + esc(msg) + '</p></div>';
     }
 
-    /* ===== PUBLISH TOOL ===== */
+    /* =====================================================
+       PUBLISH TOOL — avec upload photo
+    ===================================================== */
     async function publishTool() {
       const nom       = document.getElementById('input-name').value.trim();
       const prix_jour = parseFloat(document.getElementById('input-price').value);
-      const emoji     = window._chosenEmoji     || '\u{1F527}';
       const categorie = window._chosenCategorie || 'autre';
+      // Emoji de categorie conserve en fallback si pas de photo
+      const emoji     = window._chosenEmoji || '\u{1F527}';
+
       if (!nom)                        { shakeWrap('wrap-name');  document.getElementById('input-name').focus();  return; }
       if (!prix_jour || prix_jour < 1) { shakeWrap('wrap-price'); document.getElementById('input-price').focus(); return; }
+
       const btn = document.getElementById('btn-publish');
       btn.disabled = true;
+
+      let image_url = null;
+
+      // --- ETAPE 1 : upload photo si une image a ete choisie ---
+      if (_selectedFile) {
+        btn.style.background = 'linear-gradient(135deg,#818cf8,#6366f1)';
+        btn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg> Upload en cours...';
+        try {
+          image_url = await uploadImage(_selectedFile, nom);
+        } catch (e) {
+          btn.disabled = false;
+          btn.style.background = 'linear-gradient(135deg,#f87171,#dc2626)';
+          btn.innerHTML = '\u26A0\uFE0F Erreur upload — r\u00E9essayez';
+          setTimeout(resetPublishBtn, 2500);
+          return;
+        }
+      }
+
+      // --- ETAPE 2 : INSERT en base ---
       btn.style.background = 'linear-gradient(135deg,#94a3b8,#64748b)';
-      btn.innerHTML = '\u23F3 Publication...';
-      const { error } = await supabase.from('tools').insert([{ nom, categorie, prix_jour, emoji, distance: '< 100 m', statut: 'disponible' }]);
+      btn.innerHTML = '\u23F3 Enregistrement...';
+
+      const { error } = await supabase.from('tools').insert([{
+        nom,
+        categorie,
+        prix_jour,
+        emoji,
+        image_url,              // null si pas de photo
+        distance: '< 100 m',
+        statut:   'disponible'
+      }]);
+
       if (error) {
         btn.disabled = false;
         btn.style.background = 'linear-gradient(135deg,#f87171,#dc2626)';
-        btn.innerHTML = '\u26A0\uFE0F Erreur';
-        setTimeout(resetPublishBtn, 2000);
+        btn.innerHTML = '\u26A0\uFE0F Erreur — r\u00E9essayez';
+        setTimeout(resetPublishBtn, 2500);
         return;
       }
+
+      // --- ETAPE 3 : succes ---
       btn.style.background = 'linear-gradient(135deg,#4ade80,#16a34a)';
-      btn.innerHTML = '\u2713 Publie !';
-      setTimeout(function() { closeModal(); showToast(emoji + ' \u00AB ' + nom + ' \u00BB publie !'); fetchTools(); setTimeout(resetPublishBtn, 500); }, 850);
+      btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg> Publi\u00E9 !';
+
+      setTimeout(function() {
+        closeModal();
+        showToast((image_url ? '\u{1F4F8}' : emoji) + ' \u00AB ' + nom + ' \u00BB publi\u00E9 avec succ\u00E8s !');
+        fetchTools();
+        setTimeout(resetPublishBtn, 500);
+      }, 900);
     }
 
-    /* ===== EXPOSE TO GLOBAL ===== */
-    window.fetchTools   = fetchTools;
-    window.publishTool  = publishTool;
-    window.signIn       = signIn;
-    window.signUp       = signUp;
-    window.signOut      = signOut;
+    /* =====================================================
+       EXPOSE VERS LE SCOPE GLOBAL
+    ===================================================== */
+    window.fetchTools     = fetchTools;
+    window.publishTool    = publishTool;
+    window.onFileSelected = onFileSelected;
+    window.signIn         = signIn;
+    window.signUp         = signUp;
+    window.signOut        = signOut;
 
     document.addEventListener('DOMContentLoaded', function() {
       fetchTools();
@@ -204,27 +317,37 @@
   <style>
     *{box-sizing:border-box;margin:0;padding:0;}
     html,body{background:#f1f5f9;font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 16px;}
+
     @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
     @keyframes fadeUp{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
     @keyframes shake{0%,100%{transform:translateX(0);}20%{transform:translateX(-5px);}40%{transform:translateX(5px);}60%{transform:translateX(-3px);}80%{transform:translateX(3px);}}
-    .fu{animation:fadeUp .4s cubic-bezier(.22,1,.36,1) both;} .d1{animation-delay:.05s;} .d2{animation-delay:.10s;} .d3{animation-delay:.15s;}
+    @keyframes shimmer{0%{background-position:-400px 0;}100%{background-position:400px 0;}}
+
+    .fu{animation:fadeUp .4s cubic-bezier(.22,1,.36,1) both;}
+    .d1{animation-delay:.05s;} .d2{animation-delay:.10s;} .d3{animation-delay:.15s;}
+
     /* Phone */
     .phone{width:390px;height:844px;background:#fff;border-radius:48px;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.06);position:relative;display:flex;flex-direction:column;}
     .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:126px;height:34px;background:#0f172a;border-radius:0 0 20px 20px;z-index:50;}
     .scroll-area{flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;padding-bottom:88px;}
     .scroll-area::-webkit-scrollbar{display:none;}
+
     /* Search */
     .search-bar{display:flex;align-items:center;gap:10px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:14px;padding:12px 14px;transition:border-color .2s,box-shadow .2s;}
     .search-bar:focus-within{border-color:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,.12);}
     .search-bar input{flex:1;background:transparent;border:none;outline:none;font-family:'DM Sans',sans-serif;font-size:13.5px;color:#1e293b;}
     .search-bar input::placeholder{color:#94a3b8;}
+
     /* Pills */
     .pill{border-radius:100px;padding:7px 16px;font-size:13px;font-weight:500;white-space:nowrap;cursor:pointer;border:none;font-family:'DM Sans',sans-serif;transition:all .18s;}
     .pill.active{background:#f97316;color:white;} .pill.inactive{background:#f1f5f9;color:#64748b;} .pill.inactive:hover{background:#ffedd5;color:#c2410c;}
+
     /* Cards */
     .tool-card{background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 2px 14px rgba(0,0,0,.07),0 1px 3px rgba(0,0,0,.04);transition:transform .2s cubic-bezier(.34,1.56,.64,1);cursor:pointer;}
     .tool-card:active{transform:scale(.97);}
-    .card-img{width:100%;height:100px;display:flex;align-items:center;justify-content:center;font-size:42px;}
+    .card-img{width:100%;height:110px;display:flex;align-items:center;justify-content:center;font-size:42px;overflow:hidden;}
+    .card-img img{width:100%;height:100%;object-fit:cover;transition:transform .3s;}
+    .tool-card:hover .card-img img{transform:scale(1.04);}
     .card-body{padding:10px;}
     .card-title{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:#1e293b;line-height:1.3;margin-bottom:4px;}
     .card-dist{display:flex;align-items:center;gap:3px;font-size:11px;color:#94a3b8;margin-bottom:8px;}
@@ -235,23 +358,29 @@
     .btn-rent.avail{background:#fff7ed;color:#f97316;} .btn-rent.unavail{background:#f1f5f9;color:#94a3b8;cursor:not-allowed;} .btn-rent.sent{background:#dcfce7;color:#16a34a;cursor:default;}
     .badge{font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:100px;}
     .badge.ok{background:#dcfce7;color:#16a34a;} .badge.no{background:#fee2e2;color:#dc2626;}
+
     /* Featured */
     .featured{border-radius:20px;overflow:hidden;position:relative;height:168px;background:linear-gradient(120deg,#1e293b,#334155);box-shadow:0 4px 20px rgba(249,115,22,.18);cursor:pointer;}
     .feat-bg{position:absolute;right:-10px;bottom:-14px;font-size:110px;opacity:.10;line-height:1;transform:rotate(-12deg);pointer-events:none;user-select:none;}
     .feat-body{position:absolute;inset:0;padding:18px 20px;display:flex;flex-direction:column;justify-content:space-between;}
+
     /* Nav */
     .bottom-nav{position:absolute;bottom:0;left:0;right:0;height:80px;background:rgba(255,255,255,.96);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid rgba(0,0,0,.06);display:flex;align-items:center;justify-content:space-around;padding:0 8px 10px;z-index:40;}
     .nav-item{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:6px 10px;border-radius:12px;transition:background .15s;}
     .nav-item:active{background:#fff7ed;} .nav-lbl{font-size:10.5px;font-weight:500;}
+
     /* Avatar */
     .avatar{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:14px;font-family:'Syne',sans-serif;flex-shrink:0;transition:background .3s;cursor:pointer;}
+
     /* Toast */
     #toast{position:fixed;bottom:104px;left:50%;transform:translateX(-50%) translateY(20px);background:#1e293b;color:white;padding:11px 18px;border-radius:14px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;display:flex;align-items:center;gap:9px;box-shadow:0 8px 28px rgba(0,0,0,.18);opacity:0;pointer-events:none;transition:opacity .28s,transform .28s cubic-bezier(.34,1.56,.64,1);z-index:9999;white-space:nowrap;}
     #toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto;}
     .toast-icon{width:22px;height:22px;background:linear-gradient(135deg,#fb923c,#ea580c);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+
     /* Backdrop */
     .backdrop{position:fixed;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);opacity:0;pointer-events:none;transition:opacity .3s;z-index:1000;}
     .backdrop.show{opacity:1;pointer-events:auto;}
+
     /* Bottom sheets */
     .bottom-sheet{position:fixed;bottom:0;left:50%;transform:translateX(-50%) translateY(100%);width:390px;max-width:100vw;background:white;border-radius:28px 28px 0 0;padding-bottom:36px;box-shadow:0 -8px 40px rgba(0,0,0,.14);transition:transform .38s cubic-bezier(.32,1.25,.64,1);z-index:1001;}
     .bottom-sheet.show{transform:translateX(-50%) translateY(0);}
@@ -262,7 +391,8 @@
     .sheet-sub{font-size:12.5px;color:#94a3b8;margin-top:2px;}
     .sheet-close{width:32px;height:32px;background:#f1f5f9;border:none;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
     .sheet-body{padding:0 22px;display:flex;flex-direction:column;gap:14px;}
-    /* Auth modal (centred card) */
+
+    /* Auth modal */
     #auth-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.95);width:350px;max-width:calc(100vw - 32px);background:white;border-radius:24px;box-shadow:0 24px 60px rgba(0,0,0,.2),0 0 0 1px rgba(0,0,0,.05);opacity:0;pointer-events:none;transition:opacity .28s,transform .28s cubic-bezier(.34,1.56,.64,1);z-index:1001;padding-bottom:28px;}
     #auth-modal.show{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1);}
     .auth-tabs{display:flex;border-bottom:1px solid #f1f5f9;margin:0 22px;}
@@ -270,13 +400,15 @@
     .auth-tab.active{color:#f97316;border-bottom-color:#f97316;}
     .auth-hint{margin:14px 22px 0;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px 14px;font-size:12.5px;color:#c2410c;display:none;}
     .auth-hint.visible{display:block;}
-    /* Form fields */
+
+    /* Fields */
     .field-lbl{font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px;margin-bottom:7px;}
     .field-wrap{display:flex;align-items:center;gap:10px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:13px;padding:12px 14px;transition:border-color .2s,box-shadow .2s;}
     .field-wrap.focused{border-color:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,.12);}
     .field-wrap.errored{border-color:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,.12);animation:shake .38s ease;}
     .field-wrap input{flex:1;background:transparent;border:none;outline:none;font-family:'DM Sans',sans-serif;font-size:14px;color:#1e293b;}
     .field-wrap input::placeholder{color:#94a3b8;}
+
     /* Buttons */
     .btn-primary{width:100%;padding:15px;background:linear-gradient(135deg,#fb923c,#ea580c);color:white;border:none;border-radius:15px;font-family:'Syne',sans-serif;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(249,115,22,.28);display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .18s,background .3s;}
     .btn-primary:active{transform:scale(.97);}
@@ -284,9 +416,59 @@
     .btn-danger:hover{background:#fee2e2;}
     .btn-publish{width:100%;padding:15px;background:linear-gradient(135deg,#fb923c,#ea580c);color:white;border:none;border-radius:15px;font-family:'Syne',sans-serif;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(249,115,22,.28);display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .18s,background .3s;margin-top:4px;}
     .btn-publish:active{transform:scale(.97);}
-    .emoji-row{display:flex;gap:9px;}
-    .emoji-btn{font-size:22px;width:46px;height:46px;border-radius:13px;border:2px solid #e2e8f0;background:#f8fafc;cursor:pointer;transition:all .18s;}
-    .emoji-btn.active{border-color:#f97316;background:#fff7ed;}
+
+    /* ── PHOTO UPLOAD ZONE ── */
+    .photo-upload-zone{
+      border: 2px dashed #e2e8f0;
+      border-radius: 16px;
+      overflow: hidden;
+      position: relative;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      background: #f8fafc;
+    }
+    .photo-upload-zone:hover{ border-color:#f97316; background:#fff7ed; }
+    .photo-upload-zone input[type=file]{ position:absolute;inset:0;opacity:0;cursor:pointer;z-index:2; }
+
+    /* Placeholder (visible quand pas d'image) */
+    #img-placeholder{
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 8px; padding: 22px 16px;
+      pointer-events: none;
+    }
+    .upload-icon-ring{
+      width:48px;height:48px;border-radius:50%;
+      background:linear-gradient(135deg,#fb923c,#ea580c);
+      display:flex;align-items:center;justify-content:center;
+    }
+    .upload-label-main{ font-family:'Syne',sans-serif;font-size:13.5px;font-weight:700;color:#1e293b; }
+    .upload-label-sub{ font-size:11.5px;color:#94a3b8;margin-top:-4px; }
+
+    /* Miniature (visible apres selection) */
+    #img-preview-wrap{
+      display: none;               /* cache par defaut */
+      position: relative;
+      align-items: center; gap: 12px;
+      padding: 10px 14px;
+    }
+    #img-preview{
+      width:60px;height:60px;border-radius:12px;object-fit:cover;
+      box-shadow:0 2px 10px rgba(0,0,0,.12);flex-shrink:0;
+    }
+    .preview-info{ flex:1;min-width:0; }
+    .preview-name{ font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .preview-change{ font-size:11.5px;color:#f97316;font-weight:500;margin-top:2px; }
+    .preview-badge{ display:inline-flex;align-items:center;gap:4px;background:#dcfce7;color:#16a34a;font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:100px;margin-top:4px; }
+
+    /* Categorie pills dans la modale */
+    .cat-pills{ display:flex;gap:8px;flex-wrap:wrap; }
+    .cat-pill{
+      border:1.5px solid #e2e8f0;border-radius:100px;padding:7px 14px;
+      font-size:12.5px;font-weight:500;cursor:pointer;background:#f8fafc;
+      font-family:'DM Sans',sans-serif;transition:all .18s;white-space:nowrap;
+    }
+    .cat-pill.active{ background:#f97316;color:white;border-color:#f97316; }
+    .cat-pill:not(.active):hover{ background:#ffedd5;border-color:#fb923c;color:#c2410c; }
   </style>
 </head>
 <body>
@@ -309,7 +491,6 @@
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           <span style="position:absolute;top:7px;right:7px;width:7px;height:7px;background:#f97316;border-radius:50%;border:1.5px solid white;"></span>
         </button>
-        <!-- Avatar — mis a jour par updateAuthUI() -->
         <div id="header-avatar" class="avatar" style="background:#cbd5e1;" onclick="document.getElementById('nav-profil').onclick&&document.getElementById('nav-profil').onclick()">?</div>
       </div>
     </div>
@@ -321,10 +502,11 @@
 
   <!-- SCROLL -->
   <div class="scroll-area">
+
     <!-- Search -->
     <div style="padding:4px 22px 0;" class="fu d1">
       <div class="search-bar">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" style="flex-shrink:0;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input type="text" placeholder="De quel outil avez-vous besoin ?" />
         <button style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#fb923c,#ea580c);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/></svg>
@@ -363,7 +545,7 @@
       </div>
     </div>
 
-    <!-- Grid -->
+    <!-- Grille Supabase -->
     <div style="padding:22px 22px 0;" class="fu d3">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
         <span style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:#1e293b;letter-spacing:-.3px;">Pr&#232;s de vous</span>
@@ -385,7 +567,6 @@
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
       <span class="nav-lbl" style="color:#94a3b8;">Mes Outils</span>
     </div>
-    <!-- FAB — onclick assigne par updateAuthUI() -->
     <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
       <button id="fab-proposer" style="width:52px;height:52px;background:linear-gradient(135deg,#fb923c,#ea580c);border:none;border-radius:16px;box-shadow:0 6px 20px rgba(249,115,22,.36);cursor:pointer;display:flex;align-items:center;justify-content:center;margin-top:-16px;transition:transform .18s;">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -399,7 +580,6 @@
       </div>
       <span class="nav-lbl" style="color:#94a3b8;">Messages</span>
     </div>
-    <!-- Profil — onclick assigne par updateAuthUI() -->
     <div id="nav-profil" class="nav-item">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       <span class="nav-lbl" style="color:#94a3b8;">Profil</span>
@@ -429,16 +609,13 @@
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
   </div>
-  <!-- Hint contextuel FAB -->
   <div id="auth-hint" class="auth-hint">&#128274; Connectez-vous pour proposer un outil &#224; vos voisins !</div>
-  <!-- Onglets -->
   <div style="margin-top:16px;">
     <div class="auth-tabs">
       <button id="tab-login"  class="auth-tab active" onclick="switchAuthTab('login')">Se connecter</button>
       <button id="tab-signup" class="auth-tab"        onclick="switchAuthTab('signup')">S'inscrire</button>
     </div>
   </div>
-  <!-- Formulaire -->
   <div style="padding:18px 22px 0;display:flex;flex-direction:column;gap:12px;">
     <div>
       <div class="field-lbl">Email</div>
@@ -460,7 +637,7 @@
       Se connecter
     </button>
     <p id="auth-switch-text" style="text-align:center;font-size:12.5px;color:#94a3b8;margin-top:-4px;">
-      Pas encore de compte ? <button onclick="switchAuthTab('signup')" style="color:#f97316;font-weight:600;background:none;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:12.5px;">S'inscrire</button>
+      Pas encore de compte&#160;? <button onclick="switchAuthTab('signup')" style="color:#f97316;font-weight:600;background:none;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:12.5px;">S'inscrire</button>
     </p>
   </div>
 </div>
@@ -476,7 +653,7 @@
     <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:8px 0 4px;">
       <div id="profile-avatar" style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#fb923c,#ea580c);display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-size:26px;font-weight:700;color:white;">?</div>
       <div style="text-align:center;">
-        <p id="profile-email" style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:#1e293b;">—</p>
+        <p id="profile-email" style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:#1e293b;">&#8212;</p>
         <p style="font-size:12px;color:#94a3b8;margin-top:2px;">Membre BricoVoisin</p>
       </div>
     </div>
@@ -498,31 +675,78 @@
   </div>
 </div>
 
-<!-- MODALE OUTILS -->
+<!-- =====================================================
+     MODALE OUTILS — avec zone photo
+===================================================== -->
 <div id="modal" class="bottom-sheet">
   <div class="sheet-handle"><div class="sheet-handle-bar"></div></div>
   <div class="sheet-head">
     <div><div class="sheet-title">Proposer un outil</div><div class="sheet-sub">Visible dans un rayon de 2 km</div></div>
     <button class="sheet-close" onclick="closeModal()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
   </div>
+
   <div class="sheet-body">
+
+    <!-- ── ZONE PHOTO ── -->
+    <div>
+      <div class="field-lbl">Photo de l'outil</div>
+      <div class="photo-upload-zone" id="photo-zone">
+        <!-- Input file cache — accepte photo + galerie -->
+        <input type="file" accept="image/*" capture="environment"
+               onchange="onFileSelected(this)" id="file-input" />
+
+        <!-- Placeholder (etat vide) -->
+        <div id="img-placeholder">
+          <div class="upload-icon-ring">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+              <circle cx="12" cy="13" r="4"/>
+            </svg>
+          </div>
+          <span class="upload-label-main">Ajouter une photo</span>
+          <span class="upload-label-sub">Galerie ou appareil photo</span>
+        </div>
+
+        <!-- Miniature (etat apres selection) -->
+        <div id="img-preview-wrap">
+          <img id="img-preview" src="" alt="Aper&#231;u" />
+          <div class="preview-info">
+            <div class="preview-name" id="preview-filename">photo.jpg</div>
+            <div class="preview-badge">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+              Photo s&#233;lectionn&#233;e
+            </div>
+            <div class="preview-change">Appuyer pour changer</div>
+          </div>
+        </div>
+      </div>
+      <p style="font-size:11px;color:#94a3b8;margin-top:6px;text-align:center;">
+        &#128247; Facultatif &#8212; max 5 Mo &middot; JPG, PNG, WEBP
+      </p>
+    </div>
+
+    <!-- ── CATEGORIE (pills) ── -->
     <div>
       <div class="field-lbl">Cat&#233;gorie</div>
-      <div class="emoji-row">
-        <button class="emoji-btn active" onclick="pickEmoji(this,'&#128297;','percage')">&#128297;</button>
-        <button class="emoji-btn"        onclick="pickEmoji(this,'&#127807;','jardin')">&#127807;</button>
-        <button class="emoji-btn"        onclick="pickEmoji(this,'&#129302;','decoupe')">&#129302;</button>
-        <button class="emoji-btn"        onclick="pickEmoji(this,'&#127912;','peinture')">&#127912;</button>
-        <button class="emoji-btn"        onclick="pickEmoji(this,'&#128295;','autre')">&#128295;</button>
+      <div class="cat-pills" id="cat-pills">
+        <button class="cat-pill active" onclick="selectCat(this,'percage','&#128297;')">&#128296; Per&#231;age</button>
+        <button class="cat-pill"        onclick="selectCat(this,'jardin','&#127807;')">&#127807; Jardin</button>
+        <button class="cat-pill"        onclick="selectCat(this,'decoupe','&#129302;')">&#129302; D&#233;coupe</button>
+        <button class="cat-pill"        onclick="selectCat(this,'peinture','&#127912;')">&#127912; Peinture</button>
+        <button class="cat-pill"        onclick="selectCat(this,'autre','&#128295;')">&#128295; Autre</button>
       </div>
     </div>
+
+    <!-- ── NOM ── -->
     <div>
       <div class="field-lbl">Nom de l'outil</div>
       <div class="field-wrap" id="wrap-name">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" style="flex-shrink:0;"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-        <input id="input-name" type="text" placeholder="ex: Perceuse Bosch 18V" onfocus="focusWrap('wrap-name')" onblur="blurWrap('wrap-name')" />
+        <input id="input-name" type="text" placeholder="ex&#160;: Perceuse Bosch 18V" onfocus="focusWrap('wrap-name')" onblur="blurWrap('wrap-name')" />
       </div>
     </div>
+
+    <!-- ── PRIX ── -->
     <div>
       <div class="field-lbl">Prix par jour</div>
       <div class="field-wrap" id="wrap-price">
@@ -531,19 +755,22 @@
         <span style="font-size:12px;color:#94a3b8;font-weight:500;margin-left:auto;">/jour</span>
       </div>
     </div>
+
     <button class="btn-publish" id="btn-publish" onclick="publishTool()">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
       Publier l'annonce
     </button>
+
   </div>
 </div>
 
 <!-- JS GLOBAL -->
 <script>
-  window._chosenEmoji = '\u{1F529}';
+  window._chosenEmoji     = '\u{1F529}';
   window._chosenCategorie = 'percage';
-  window._authTab = 'login';
+  window._authTab         = 'login';
 
+  /* Pills homepage */
   function selectPill(el,cat){
     document.querySelectorAll('#pill-bar .pill').forEach(function(p){p.classList.remove('active');p.classList.add('inactive');});
     el.classList.remove('inactive');el.classList.add('active');
@@ -551,6 +778,15 @@
     if(window.fetchTools)window.fetchTools(cat);
   }
 
+  /* Categorie pills dans la modale */
+  function selectCat(el,cat,emoji){
+    document.querySelectorAll('#cat-pills .cat-pill').forEach(function(p){p.classList.remove('active');});
+    el.classList.add('active');
+    window._chosenCategorie = cat;
+    window._chosenEmoji     = emoji;
+  }
+
+  /* Toast */
   var _tt=null;
   function showToast(msg){
     var t=document.getElementById('toast');
@@ -560,6 +796,7 @@
     _tt=setTimeout(function(){t.classList.remove('show');},3200);
   }
 
+  /* Rent */
   function sendRent(btn,name){
     if(btn.classList.contains('sent')||btn.disabled)return;
     btn.classList.remove('avail');btn.classList.add('sent');
@@ -567,6 +804,7 @@
     showToast('Demande envoy\u00E9e pour\u00A0: '+name+' !');
   }
 
+  /* Backdrop */
   function showBackdrop(){document.getElementById('shared-backdrop').classList.add('show');}
   function hideBackdrop(){document.getElementById('shared-backdrop').classList.remove('show');}
   function closeAllModals(){closeModal();closeAuthModal();closeProfileModal();}
@@ -575,11 +813,35 @@
   function openModal(){
     closeAuthModal();closeProfileModal();
     document.getElementById('modal').classList.add('show');
+    // Reset du formulaire complet
     document.getElementById('input-name').value='';
     document.getElementById('input-price').value='';
-    resetPublishBtn();showBackdrop();
+    document.getElementById('img-placeholder').style.display='flex';
+    document.getElementById('img-preview-wrap').style.display='none';
+    document.getElementById('img-preview').src='';
+    document.getElementById('file-input').value='';
+    // Reset categorie
+    document.querySelectorAll('#cat-pills .cat-pill').forEach(function(p){p.classList.remove('active');});
+    document.querySelector('#cat-pills .cat-pill').classList.add('active');
+    window._chosenCategorie='percage'; window._chosenEmoji='\u{1F529}';
+    resetPublishBtn(); showBackdrop();
   }
   function closeModal(){document.getElementById('modal').classList.remove('show');hideBackdrop();}
+
+  /* onFileSelected : mise a jour de la miniature depuis le module ESM via window */
+  // La fonction est exposee depuis le module : window.onFileSelected
+  // On surcharge ici pour aussi mettre a jour le nom du fichier affiche
+  var _origOnFileSelected = null;
+  document.addEventListener('DOMContentLoaded', function() {
+    _origOnFileSelected = window.onFileSelected;
+    window.onFileSelected = function(input) {
+      if (_origOnFileSelected) _origOnFileSelected(input);
+      // Affiche le nom du fichier
+      if (input.files && input.files[0]) {
+        document.getElementById('preview-filename').textContent = input.files[0].name;
+      }
+    };
+  });
 
   /* Modale auth */
   function openAuthModal(ctx){
@@ -603,15 +865,14 @@
     if(tab==='login'){
       tl.classList.add('active');ts.classList.remove('active');
       btn.innerHTML='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Se connecter';
-      st.innerHTML='Pas encore de compte\u00A0? <button onclick="switchAuthTab(\'signup\')" style="color:#f97316;font-weight:600;background:none;border:none;cursor:pointer;font-family:\'DM Sans\',sans-serif;font-size:12.5px;">S\'inscrire</button>';
+      st.innerHTML='Pas encore de compte&#160;? <button onclick="switchAuthTab(\'signup\')" style="color:#f97316;font-weight:600;background:none;border:none;cursor:pointer;font-family:\'DM Sans\',sans-serif;font-size:12.5px;">S\'inscrire</button>';
     } else {
       ts.classList.add('active');tl.classList.remove('active');
       btn.innerHTML='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg> Cr\u00E9er mon compte';
-      st.innerHTML='D\u00E9j\u00E0 un compte\u00A0? <button onclick="switchAuthTab(\'login\')" style="color:#f97316;font-weight:600;background:none;border:none;cursor:pointer;font-family:\'DM Sans\',sans-serif;font-size:12.5px;">Se connecter</button>';
+      st.innerHTML='D\u00E9j\u00E0 un compte&#160;? <button onclick="switchAuthTab(\'login\')" style="color:#f97316;font-weight:600;background:none;border:none;cursor:pointer;font-family:\'DM Sans\',sans-serif;font-size:12.5px;">Se connecter</button>';
     }
     btn.disabled=false;btn.style.background='linear-gradient(135deg,#fb923c,#ea580c)';
   }
-
   function submitAuth(){
     if(window._authTab==='login'){if(window.signIn)window.signIn();}
     else{if(window.signUp)window.signUp();}
@@ -636,14 +897,7 @@
     setTimeout(function(){el.classList.remove('errored');},700);
   }
 
-  /* Emoji */
-  function pickEmoji(btn,emoji,cat){
-    window._chosenEmoji=emoji;window._chosenCategorie=cat;
-    document.querySelectorAll('.emoji-btn').forEach(function(b){b.classList.remove('active');});
-    btn.classList.add('active');
-  }
-
-  /* Publish */
+  /* Reset bouton publier */
   function resetPublishBtn(){
     var btn=document.getElementById('btn-publish');
     if(!btn)return;
