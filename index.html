@@ -8,204 +8,347 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet" />
+
+  <!-- ═══════════════════════════════════════════════════════════
+       SUPABASE SDK  —  importé via CDN (ESM)
+  ═══════════════════════════════════════════════════════════ -->
+  <script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+    // ┌─────────────────────────────────────────────────────────┐
+    // │  🔑  COLLEZ VOS CLÉS SUPABASE ICI                      │
+    // │  https://mltbnvmfhknvrowihjcm.supabase.co  eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1sdGJudm1maGtudnJvd2loamNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4OTYwNzcsImV4cCI6MjA4OTQ3MjA3N30.EqlSPGs7Mow_J_vSXeO-qyeBl_T1DaOvgT5S8lkwMTU │
+    // │  Supabase Dashboard > Settings > API                   │
+    // │  → Project URL  (ex: https://xxxx.supabase.co)         │
+    // │  → anon / public key  (commence par "eyJ...")          │
+    // └─────────────────────────────────────────────────────────┘
+    const SUPABASE_URL  = 'VOTRE_PROJECT_URL';   // ← à remplacer
+    const SUPABASE_ANON = 'VOTRE_ANON_KEY';      // ← à remplacer
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+    // ─────────────────────────────────────────────────────────
+    //  fetchTools()  —  Interroge la table `tools` et génère
+    //                   les cartes HTML dynamiquement
+    // ─────────────────────────────────────────────────────────
+    async function fetchTools(categorieFiltre = 'tous') {
+      showSkeleton();
+
+      let query = supabase
+        .from('tools')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (categorieFiltre !== 'tous') {
+        query = query.eq('categorie', categorieFiltre);
+      }
+
+      const { data: tools, error } = await query;
+
+      if (error) {
+        console.error('Supabase error:', error.message);
+        showError(error.message);
+        return;
+      }
+
+      renderGrid(tools);
+    }
+
+    // ─────────────────────────────────────────────────────────
+    //  renderGrid()  —  Génère les cartes dans #tools-grid
+    // ─────────────────────────────────────────────────────────
+    function renderGrid(tools) {
+      const grid = document.getElementById('tools-grid');
+
+      if (!tools || tools.length === 0) {
+        grid.innerHTML = `
+          <div style="grid-column:1/-1;text-align:center;padding:32px 0;">
+            <div style="font-size:40px;margin-bottom:8px;">🔍</div>
+            <p style="font-family:'Syne',sans-serif;font-weight:700;color:#1e293b;font-size:15px;">Aucun outil dans cette catégorie</p>
+            <p style="color:#94a3b8;font-size:12.5px;margin-top:4px;">Soyez le premier à proposer !</p>
+          </div>`;
+        return;
+      }
+
+      grid.innerHTML = tools.map(tool => createCardHTML(tool)).join('');
+    }
+
+    // ─────────────────────────────────────────────────────────
+    //  createCardHTML()  —  Retourne le HTML d'une carte outil
+    // ─────────────────────────────────────────────────────────
+    function createCardHTML(tool) {
+      const dispo   = tool.statut === 'disponible';
+      const bgColor = getBgColor(tool.categorie);
+      const badge   = dispo
+        ? `<span class="badge ok">✓</span>`
+        : `<span class="badge no">Loué</span>`;
+      const btn = dispo
+        ? `<button class="btn-rent avail" onclick="sendRent(this, '${escHtml(tool.nom)}')">Louer</button>`
+        : `<button class="btn-rent unavail" disabled>Indispo.</button>`;
+
+      return `
+        <div class="tool-card">
+          <div class="card-img" style="background:${bgColor};">${escHtml(tool.emoji)}</div>
+          <div class="card-body">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin-bottom:4px;">
+              <span class="card-title">${escHtml(tool.nom)}</span>
+              ${badge}
+            </div>
+            <div class="card-dist">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                <circle cx="12" cy="10" r="3"/>
+              </svg>
+              ${escHtml(tool.distance)}
+            </div>
+            <div class="card-footer">
+              <div class="card-price">
+                <span class="amt">${tool.prix_jour}€</span><span class="unit">/jr</span>
+              </div>
+              ${btn}
+            </div>
+          </div>
+        </div>`;
+    }
+
+    // ─────────────────────────────────────────────────────────
+    //  publishTool()  —  INSERT dans Supabase depuis la modale
+    // ─────────────────────────────────────────────────────────
+    async function publishTool() {
+      const nom       = document.getElementById('input-name').value.trim();
+      const prix_jour = parseFloat(document.getElementById('input-price').value);
+      const emoji     = window._chosenEmoji || '🔧';
+      const categorie = window._chosenCategorie || 'autre';
+
+      if (!nom) { shakeWrap('wrap-name');  document.getElementById('input-name').focus();  return; }
+      if (!prix_jour || prix_jour < 1) { shakeWrap('wrap-price'); document.getElementById('input-price').focus(); return; }
+
+      const btn = document.getElementById('btn-publish');
+      btn.disabled = true;
+      btn.style.background = 'linear-gradient(135deg,#94a3b8,#64748b)';
+      btn.innerHTML = '<span style="font-size:16px;">⏳</span> Publication...';
+
+      const { error } = await supabase
+        .from('tools')
+        .insert([{
+          nom,
+          categorie,
+          prix_jour,
+          emoji,
+          distance: '< 100 m',   // valeur par défaut — à remplacer par géolocalisation
+          statut:   'disponible'
+        }]);
+
+      if (error) {
+        console.error('Insert error:', error.message);
+        btn.disabled = false;
+        btn.style.background = 'linear-gradient(135deg,#f87171,#dc2626)';
+        btn.innerHTML = '⚠️ Erreur — réessayez';
+        setTimeout(resetPublishBtn, 2000);
+        return;
+      }
+
+      btn.style.background = 'linear-gradient(135deg,#4ade80,#16a34a)';
+      btn.style.boxShadow  = '0 6px 20px rgba(34,197,94,0.26)';
+      btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Publié !';
+
+      setTimeout(function() {
+        closeModal();
+        showToast(emoji + ' « ' + nom + ' » publié avec succès !');
+        fetchTools();           // ← Recharge la grille avec la nouvelle annonce
+        setTimeout(resetPublishBtn, 500);
+      }, 850);
+    }
+
+    // ─────────────────────────────────────────────────────────
+    //  Helpers
+    // ─────────────────────────────────────────────────────────
+    function getBgColor(cat) {
+      const map = { percage:'#fff7ed', jardin:'#f0fdf4', decoupe:'#fef2f2', peinture:'#eff6ff', nettoyage:'#f0fdfa' };
+      return map[cat] || '#f8fafc';
+    }
+
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function showSkeleton() {
+      const grid = document.getElementById('tools-grid');
+      grid.innerHTML = Array(4).fill(`
+        <div class="tool-card" style="opacity:0.5;pointer-events:none;">
+          <div class="card-img" style="background:#f1f5f9;animation:pulse 1.4s infinite;"></div>
+          <div class="card-body">
+            <div style="height:13px;background:#f1f5f9;border-radius:6px;width:70%;margin-bottom:8px;animation:pulse 1.4s infinite;"></div>
+            <div style="height:10px;background:#f1f5f9;border-radius:6px;width:40%;margin-bottom:10px;animation:pulse 1.4s infinite;"></div>
+            <div style="height:10px;background:#f1f5f9;border-radius:6px;width:55%;animation:pulse 1.4s infinite;"></div>
+          </div>
+        </div>`).join('');
+    }
+
+    function showError(msg) {
+      const grid = document.getElementById('tools-grid');
+      grid.innerHTML = `
+        <div style="grid-column:1/-1;text-align:center;padding:24px 0;">
+          <div style="font-size:36px;margin-bottom:8px;">⚠️</div>
+          <p style="font-family:'Syne',sans-serif;font-weight:700;color:#dc2626;font-size:14px;">Connexion Supabase impossible</p>
+          <p style="color:#94a3b8;font-size:11.5px;margin-top:4px;padding:0 16px;">${escHtml(msg)}</p>
+          <p style="color:#94a3b8;font-size:11px;margin-top:6px;">Vérifiez vos clés API dans le fichier HTML.</p>
+        </div>`;
+    }
+
+    // ─────────────────────────────────────────────────────────
+    //  Exposition des fonctions au scope global (onclick="...")
+    // ─────────────────────────────────────────────────────────
+    window.fetchTools   = fetchTools;
+    window.publishTool  = publishTool;
+
+    // ─────────────────────────────────────────────────────────
+    //  Initialisation au chargement de la page
+    // ─────────────────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', function() {
+      fetchTools();
+    });
+  </script>
+
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
     html, body {
       background: #f1f5f9;
       font-family: 'DM Sans', sans-serif;
       -webkit-font-smoothing: antialiased;
       min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: flex; align-items: center; justify-content: center;
       padding: 32px 16px;
     }
 
-    /* ══ Phone shell ══ */
+    @keyframes pulse {
+      0%,100% { opacity:1; } 50% { opacity:0.4; }
+    }
+
+    /* ── Phone shell ── */
     .phone {
-      width: 390px;
-      height: 844px;
-      background: #ffffff;
-      border-radius: 48px;
-      overflow: hidden;
+      width: 390px; height: 844px;
+      background: #ffffff; border-radius: 48px; overflow: hidden;
       box-shadow: 0 32px 80px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06);
-      position: relative;
-      display: flex;
-      flex-direction: column;
+      position: relative; display: flex; flex-direction: column;
     }
-
-    /* ══ Notch ══ */
     .notch {
-      position: absolute;
-      top: 0; left: 50%;
-      transform: translateX(-50%);
-      width: 126px; height: 34px;
-      background: #0f172a;
-      border-radius: 0 0 20px 20px;
-      z-index: 50;
+      position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+      width: 126px; height: 34px; background: #0f172a;
+      border-radius: 0 0 20px 20px; z-index: 50;
     }
-
-    /* ══ Scroll area ══ */
     .scroll-area {
-      flex: 1;
-      overflow-y: auto;
-      overflow-x: hidden;
-      scrollbar-width: none;
-      padding-bottom: 88px;
+      flex: 1; overflow-y: auto; overflow-x: hidden;
+      scrollbar-width: none; padding-bottom: 88px;
     }
     .scroll-area::-webkit-scrollbar { display: none; }
 
-    /* ══ Search bar ══ */
+    /* ── Search ── */
     .search-bar {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      background: #f8fafc;
-      border: 1.5px solid #e2e8f0;
-      border-radius: 14px;
-      padding: 12px 14px;
+      display: flex; align-items: center; gap: 10px;
+      background: #f8fafc; border: 1.5px solid #e2e8f0;
+      border-radius: 14px; padding: 12px 14px;
       transition: border-color 0.2s, box-shadow 0.2s;
     }
-    .search-bar:focus-within {
-      border-color: #f97316;
-      box-shadow: 0 0 0 3px rgba(249,115,22,0.12);
-    }
+    .search-bar:focus-within { border-color: #f97316; box-shadow: 0 0 0 3px rgba(249,115,22,0.12); }
     .search-bar input {
-      flex: 1; background: transparent;
-      border: none; outline: none;
-      font-family: 'DM Sans', sans-serif;
-      font-size: 13.5px; color: #1e293b;
+      flex: 1; background: transparent; border: none; outline: none;
+      font-family: 'DM Sans', sans-serif; font-size: 13.5px; color: #1e293b;
     }
     .search-bar input::placeholder { color: #94a3b8; }
 
-    /* ══ Category pills ══ */
+    /* ── Pills ── */
     .pill {
-      border-radius: 100px;
-      padding: 7px 16px;
-      font-size: 13px; font-weight: 500;
-      white-space: nowrap;
-      cursor: pointer;
-      border: none;
-      font-family: 'DM Sans', sans-serif;
+      border-radius: 100px; padding: 7px 16px;
+      font-size: 13px; font-weight: 500; white-space: nowrap;
+      cursor: pointer; border: none; font-family: 'DM Sans', sans-serif;
       transition: all 0.18s ease;
     }
     .pill.active   { background: #f97316; color: white; }
     .pill.inactive { background: #f1f5f9; color: #64748b; }
     .pill.inactive:hover { background: #ffedd5; color: #c2410c; }
 
-    /* ══ Tool card ══ */
+    /* ── Tool card ── */
     .tool-card {
-      background: #ffffff;
-      border-radius: 20px;
-      overflow: hidden;
+      background: #ffffff; border-radius: 20px; overflow: hidden;
       box-shadow: 0 2px 14px rgba(0,0,0,0.07), 0 1px 3px rgba(0,0,0,0.04);
       transition: transform 0.2s cubic-bezier(.34,1.56,.64,1), box-shadow 0.2s;
       cursor: pointer;
     }
-    .tool-card:active {
-      transform: scale(0.97);
-      box-shadow: 0 4px 20px rgba(0,0,0,0.10);
-    }
+    .tool-card:active { transform: scale(0.97); box-shadow: 0 4px 20px rgba(0,0,0,0.10); }
     .card-img {
       width: 100%; height: 100px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 42px;
+      display: flex; align-items: center; justify-content: center; font-size: 42px;
     }
     .card-body { padding: 10px; }
     .card-title {
-      font-family: 'Syne', sans-serif;
-      font-size: 13px; font-weight: 700;
-      color: #1e293b; line-height: 1.3;
-      margin-bottom: 4px;
+      font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700;
+      color: #1e293b; line-height: 1.3; margin-bottom: 4px;
     }
     .card-dist {
       display: flex; align-items: center; gap: 3px;
-      font-size: 11px; color: #94a3b8;
-      margin-bottom: 8px;
+      font-size: 11px; color: #94a3b8; margin-bottom: 8px;
     }
-    .card-footer {
-      display: flex; align-items: center; justify-content: space-between;
-    }
-    .card-price {
-      font-family: 'Syne', sans-serif;
-      font-size: 15px; font-weight: 700; color: #1e293b;
-    }
-    .card-price .amt { color: #f97316; }
+    .card-footer { display: flex; align-items: center; justify-content: space-between; }
+    .card-price  { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; color: #1e293b; }
+    .card-price .amt  { color: #f97316; }
     .card-price .unit { font-size: 10px; font-weight: 400; color: #94a3b8; }
 
     .btn-rent {
-      border: none; border-radius: 8px;
-      padding: 5px 11px;
-      font-size: 11.5px; font-weight: 600;
-      cursor: pointer;
-      font-family: 'DM Sans', sans-serif;
-      transition: all 0.18s;
+      border: none; border-radius: 8px; padding: 5px 11px;
+      font-size: 11.5px; font-weight: 600; cursor: pointer;
+      font-family: 'DM Sans', sans-serif; transition: all 0.18s;
     }
-    .btn-rent.avail    { background: #fff7ed; color: #f97316; }
-    .btn-rent.unavail  { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
-    .btn-rent.sent     { background: #dcfce7; color: #16a34a; cursor: default; }
+    .btn-rent.avail   { background: #fff7ed; color: #f97316; }
+    .btn-rent.unavail { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
+    .btn-rent.sent    { background: #dcfce7; color: #16a34a; cursor: default; }
 
-    /* ══ Badge ══ */
-    .badge {
-      font-size: 10.5px; font-weight: 600;
-      padding: 3px 8px; border-radius: 100px;
-    }
+    .badge { font-size: 10.5px; font-weight: 600; padding: 3px 8px; border-radius: 100px; }
     .badge.ok { background: #dcfce7; color: #16a34a; }
     .badge.no { background: #fee2e2; color: #dc2626; }
 
-    /* ══ Featured card ══ */
+    /* ── Featured ── */
     .featured {
-      border-radius: 20px; overflow: hidden;
-      position: relative; height: 168px;
+      border-radius: 20px; overflow: hidden; position: relative; height: 168px;
       background: linear-gradient(120deg,#1e293b,#334155);
-      box-shadow: 0 4px 20px rgba(249,115,22,0.18);
-      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(249,115,22,0.18); cursor: pointer;
     }
     .feat-bg {
       position: absolute; right: -10px; bottom: -14px;
-      font-size: 110px; opacity: 0.10;
-      line-height: 1; transform: rotate(-12deg);
-      pointer-events: none;
-      user-select: none;
+      font-size: 110px; opacity: 0.10; line-height: 1;
+      transform: rotate(-12deg); pointer-events: none; user-select: none;
     }
     .feat-body {
-      position: absolute; inset: 0;
-      padding: 18px 20px;
+      position: absolute; inset: 0; padding: 18px 20px;
       display: flex; flex-direction: column; justify-content: space-between;
     }
 
-    /* ══ Recent scroll ══ */
+    /* ── Recent scroll ── */
     .recent-scroll {
-      display: flex; gap: 12px;
-      overflow-x: auto; scrollbar-width: none;
-      padding-bottom: 4px;
+      display: flex; gap: 12px; overflow-x: auto;
+      scrollbar-width: none; padding-bottom: 4px;
     }
     .recent-scroll::-webkit-scrollbar { display: none; }
     .recent-card { flex-shrink: 0; width: 130px; }
 
-    /* ══ Bottom nav ══ */
+    /* ── Bottom nav ── */
     .bottom-nav {
-      position: absolute;
-      bottom: 0; left: 0; right: 0;
-      height: 80px;
+      position: absolute; bottom: 0; left: 0; right: 0; height: 80px;
       background: rgba(255,255,255,0.96);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
       border-top: 1px solid rgba(0,0,0,0.06);
       display: flex; align-items: center; justify-content: space-around;
-      padding: 0 8px 10px;
-      z-index: 40;
+      padding: 0 8px 10px; z-index: 40;
     }
     .nav-item {
       display: flex; flex-direction: column; align-items: center; gap: 3px;
-      cursor: pointer; padding: 6px 10px; border-radius: 12px;
-      transition: background 0.15s;
+      cursor: pointer; padding: 6px 10px; border-radius: 12px; transition: background 0.15s;
     }
     .nav-item:active { background: #fff7ed; }
     .nav-lbl { font-size: 10.5px; font-weight: 500; }
 
-    /* ══ Avatar ══ */
     .avatar {
       width: 38px; height: 38px; border-radius: 50%;
       background: linear-gradient(135deg,#fb923c,#ea580c);
@@ -214,82 +357,62 @@
       font-family: 'Syne', sans-serif; flex-shrink: 0;
     }
 
-    /* ══ Fade-up ══ */
+    /* ── Animations ── */
     @keyframes fadeUp {
       from { opacity:0; transform:translateY(16px); }
       to   { opacity:1; transform:translateY(0); }
     }
     .fu  { animation: fadeUp 0.4s cubic-bezier(.22,1,.36,1) both; }
-    .d1  { animation-delay:.05s; }
-    .d2  { animation-delay:.10s; }
-    .d3  { animation-delay:.15s; }
-    .d4  { animation-delay:.20s; }
+    .d1  { animation-delay:.05s; } .d2 { animation-delay:.10s; }
+    .d3  { animation-delay:.15s; } .d4 { animation-delay:.20s; }
 
-    /* ══ Toast ══ */
+    /* ── Toast ── */
     #toast {
-      position: fixed;
-      bottom: 104px; left: 50%;
+      position: fixed; bottom: 104px; left: 50%;
       transform: translateX(-50%) translateY(20px);
-      background: #1e293b; color: white;
-      padding: 11px 18px; border-radius: 14px;
-      font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 500;
+      background: #1e293b; color: white; padding: 11px 18px;
+      border-radius: 14px; font-family: 'DM Sans', sans-serif;
+      font-size: 13px; font-weight: 500;
       display: flex; align-items: center; gap: 9px;
-      box-shadow: 0 8px 28px rgba(0,0,0,0.18);
-      opacity: 0; pointer-events: none;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.18); opacity: 0; pointer-events: none;
       transition: opacity 0.28s ease, transform 0.28s cubic-bezier(.34,1.56,.64,1);
       z-index: 9999; white-space: nowrap;
     }
     #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
     .toast-icon {
-      width: 22px; height: 22px;
-      background: linear-gradient(135deg,#fb923c,#ea580c);
-      border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0;
+      width: 22px; height: 22px; background: linear-gradient(135deg,#fb923c,#ea580c);
+      border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
 
-    /* ══ Modal backdrop ══ */
+    /* ── Modal ── */
     #backdrop {
-      position: fixed; inset: 0;
-      background: rgba(15,23,42,0.55);
+      position: fixed; inset: 0; background: rgba(15,23,42,0.55);
       backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-      opacity: 0; pointer-events: none;
-      transition: opacity 0.3s ease;
-      z-index: 1000;
+      opacity: 0; pointer-events: none; transition: opacity 0.3s ease; z-index: 1000;
     }
     #backdrop.show { opacity: 1; pointer-events: auto; }
 
-    /* ══ Modal sheet ══ */
     #modal {
-      position: fixed;
-      bottom: 0; left: 50%;
+      position: fixed; bottom: 0; left: 50%;
       transform: translateX(-50%) translateY(100%);
-      width: 390px; max-width: 100vw;
-      background: white;
-      border-radius: 28px 28px 0 0;
-      padding-bottom: 36px;
+      width: 390px; max-width: 100vw; background: white;
+      border-radius: 28px 28px 0 0; padding-bottom: 36px;
       box-shadow: 0 -8px 40px rgba(0,0,0,0.14);
-      transition: transform 0.38s cubic-bezier(.32,1.25,.64,1);
-      z-index: 1001;
+      transition: transform 0.38s cubic-bezier(.32,1.25,.64,1); z-index: 1001;
     }
     #modal.show { transform: translateX(-50%) translateY(0); }
 
     .modal-handle { display: flex; justify-content: center; padding: 14px 0 4px; }
     .modal-handle-bar { width: 36px; height: 4px; background: #e2e8f0; border-radius: 100px; }
-
     .modal-head {
       display: flex; align-items: flex-start; justify-content: space-between;
       padding: 10px 22px 18px;
     }
-    .modal-title {
-      font-family: 'Syne', sans-serif; font-size: 20px;
-      font-weight: 700; color: #1e293b; letter-spacing: -0.3px;
-    }
-    .modal-sub { font-size: 12.5px; color: #94a3b8; margin-top: 2px; }
+    .modal-title { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 700; color: #1e293b; letter-spacing: -0.3px; }
+    .modal-sub   { font-size: 12.5px; color: #94a3b8; margin-top: 2px; }
     .modal-close-btn {
       width: 32px; height: 32px; background: #f1f5f9;
-      border: none; border-radius: 10px;
-      cursor: pointer;
+      border: none; border-radius: 10px; cursor: pointer;
       display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
     .modal-body { padding: 0 22px; display: flex; flex-direction: column; gap: 14px; }
@@ -324,34 +447,30 @@
       background: linear-gradient(135deg,#fb923c,#ea580c);
       color: white; border: none; border-radius: 15px;
       font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700;
-      cursor: pointer;
-      box-shadow: 0 6px 20px rgba(249,115,22,0.28);
+      cursor: pointer; box-shadow: 0 6px 20px rgba(249,115,22,0.28);
       display: flex; align-items: center; justify-content: center; gap: 8px;
-      transition: transform 0.18s, background 0.3s, box-shadow 0.3s;
-      margin-top: 4px;
+      transition: transform 0.18s, background 0.3s, box-shadow 0.3s; margin-top: 4px;
     }
     .btn-publish:active { transform: scale(0.97); }
 
     @keyframes shake {
       0%,100% { transform:translateX(0); }
-      20%      { transform:translateX(-5px); }
-      40%      { transform:translateX(5px); }
-      60%      { transform:translateX(-3px); }
-      80%      { transform:translateX(3px); }
+      20%     { transform:translateX(-5px); }
+      40%     { transform:translateX(5px); }
+      60%     { transform:translateX(-3px); }
+      80%     { transform:translateX(3px); }
     }
   </style>
 </head>
 <body>
 
-<!-- ════════════ PHONE SHELL ════════════ -->
+<!-- ════════════ PHONE ════════════ -->
 <div class="phone">
-
   <div class="notch"></div>
 
   <!-- HEADER -->
   <header style="padding:44px 22px 12px;background:white;position:relative;z-index:30;" class="fu">
     <div style="display:flex;align-items:center;justify-content:space-between;">
-
       <div style="display:flex;align-items:center;gap:8px;">
         <div style="width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#fb923c,#ea580c);display:flex;align-items:center;justify-content:center;">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -360,7 +479,6 @@
         </div>
         <span style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:#1e293b;letter-spacing:-0.5px;">Brico<span style="color:#f97316;">Voisin</span></span>
       </div>
-
       <div style="display:flex;align-items:center;gap:10px;">
         <button style="position:relative;width:36px;height:36px;border-radius:10px;background:#f8fafc;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -371,9 +489,7 @@
         </button>
         <div class="avatar">M</div>
       </div>
-
     </div>
-
     <div style="margin-top:18px;">
       <p style="font-size:13px;color:#94a3b8;">Bonjour, Marc 👋</p>
       <h1 style="font-family:'Syne',sans-serif;font-size:21px;font-weight:700;color:#1e293b;letter-spacing:-0.4px;line-height:1.25;margin-top:3px;">
@@ -400,18 +516,18 @@
       </div>
     </div>
 
-    <!-- Pills -->
+    <!-- Pills — onclick appelle fetchTools() avec le filtre -->
     <div style="padding:14px 0 0;overflow-x:auto;scrollbar-width:none;" class="fu d2">
       <div id="pill-bar" style="display:flex;gap:8px;padding:0 22px;">
-        <button class="pill active"   onclick="selectPill(this)">Tous</button>
-        <button class="pill inactive" onclick="selectPill(this)">🔨 Perçage</button>
-        <button class="pill inactive" onclick="selectPill(this)">🌿 Jardin</button>
-        <button class="pill inactive" onclick="selectPill(this)">🪚 Découpe</button>
-        <button class="pill inactive" onclick="selectPill(this)">🎨 Peinture</button>
+        <button class="pill active"   onclick="selectPill(this,'tous')">Tous</button>
+        <button class="pill inactive" onclick="selectPill(this,'percage')">🔨 Perçage</button>
+        <button class="pill inactive" onclick="selectPill(this,'jardin')">🌿 Jardin</button>
+        <button class="pill inactive" onclick="selectPill(this,'decoupe')">🪚 Découpe</button>
+        <button class="pill inactive" onclick="selectPill(this,'peinture')">🎨 Peinture</button>
       </div>
     </div>
 
-    <!-- Featured -->
+    <!-- Featured (statique) -->
     <div style="padding:16px 22px 0;" class="fu d2">
       <div class="featured">
         <div class="feat-bg">🔧</div>
@@ -437,155 +553,28 @@
       </div>
     </div>
 
-    <!-- Section: Près de vous -->
+    <!-- Section: Près de vous  ← GRILLE DYNAMIQUE -->
     <div style="padding:22px 22px 0;" class="fu d3">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
         <span style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:#1e293b;letter-spacing:-0.3px;">Près de vous</span>
         <button style="color:#f97316;font-size:13px;font-weight:500;background:none;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;">Voir tout</button>
       </div>
 
-      <!-- 2-column grid -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-
-        <!-- Card 1 -->
-        <div class="tool-card">
-          <div class="card-img" style="background:#fff7ed;">🔩</div>
-          <div class="card-body">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin-bottom:4px;">
-              <span class="card-title">Perceuse Bosch</span>
-              <span class="badge ok">✓</span>
-            </div>
-            <div class="card-dist">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-              800 m
-            </div>
-            <div class="card-footer">
-              <div class="card-price"><span class="amt">5€</span><span class="unit">/jr</span></div>
-              <button class="btn-rent avail" onclick="sendRent(this,'Perceuse Bosch')">Louer</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Card 2 -->
-        <div class="tool-card">
-          <div class="card-img" style="background:#f0fdf4;">🌿</div>
-          <div class="card-body">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin-bottom:4px;">
-              <span class="card-title">Taille-haie Ryobi</span>
-              <span class="badge ok">✓</span>
-            </div>
-            <div class="card-dist">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-              1,1 km
-            </div>
-            <div class="card-footer">
-              <div class="card-price"><span class="amt">7€</span><span class="unit">/jr</span></div>
-              <button class="btn-rent avail" onclick="sendRent(this,'Taille-haie Ryobi')">Louer</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Card 3 -->
-        <div class="tool-card">
-          <div class="card-img" style="background:#fef2f2;">🪚</div>
-          <div class="card-body">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin-bottom:4px;">
-              <span class="card-title">Scie circulaire DeWalt</span>
-              <span class="badge no">Loué</span>
-            </div>
-            <div class="card-dist">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-              600 m
-            </div>
-            <div class="card-footer">
-              <div class="card-price"><span class="amt">9€</span><span class="unit">/jr</span></div>
-              <button class="btn-rent unavail" disabled>Indispo.</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Card 4 -->
-        <div class="tool-card">
-          <div class="card-img" style="background:#eff6ff;">🎨</div>
-          <div class="card-body">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin-bottom:4px;">
-              <span class="card-title">Pistolet peinture Pro</span>
-              <span class="badge ok">✓</span>
-            </div>
-            <div class="card-dist">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-              1,7 km
-            </div>
-            <div class="card-footer">
-              <div class="card-price"><span class="amt">6€</span><span class="unit">/jr</span></div>
-              <button class="btn-rent avail" onclick="sendRent(this,'Pistolet peinture Pro')">Louer</button>
-            </div>
-          </div>
-        </div>
-
-      </div>
-      <!-- end grid -->
-
-    </div>
-    <!-- end section Près de vous -->
-
-    <!-- Section: Récemment ajoutés -->
-    <div style="padding:22px 22px 0;" class="fu d4">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-        <span style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:#1e293b;letter-spacing:-0.3px;">Récemment ajoutés</span>
-        <button style="color:#f97316;font-size:13px;font-weight:500;background:none;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;">Voir tout</button>
-      </div>
-
-      <div class="recent-scroll">
-
-        <div class="tool-card recent-card">
-          <div class="card-img" style="background:#fdf4ff;height:90px;font-size:36px;">🔦</div>
-          <div class="card-body">
-            <div class="card-title" style="font-size:12px;margin-bottom:3px;">Lampe torche</div>
-            <div class="card-dist" style="margin-bottom:4px;">à 450 m</div>
-            <div class="card-price"><span class="amt">2€</span><span class="unit">/jr</span></div>
-          </div>
-        </div>
-
-        <div class="tool-card recent-card">
-          <div class="card-img" style="background:#f0fdfa;height:90px;font-size:36px;">🪛</div>
-          <div class="card-body">
-            <div class="card-title" style="font-size:12px;margin-bottom:3px;">Tournevis set</div>
-            <div class="card-dist" style="margin-bottom:4px;">à 900 m</div>
-            <div class="card-price"><span class="amt">3€</span><span class="unit">/jr</span></div>
-          </div>
-        </div>
-
-        <div class="tool-card recent-card">
-          <div class="card-img" style="background:#fffbeb;height:90px;font-size:36px;">🔑</div>
-          <div class="card-body">
-            <div class="card-title" style="font-size:12px;margin-bottom:3px;">Clé à molette</div>
-            <div class="card-dist" style="margin-bottom:4px;">à 1,4 km</div>
-            <div class="card-price"><span class="amt">2€</span><span class="unit">/jr</span></div>
-          </div>
-        </div>
-
-        <div class="tool-card recent-card">
-          <div class="card-img" style="background:#f0f9ff;height:90px;font-size:36px;">🪣</div>
-          <div class="card-body">
-            <div class="card-title" style="font-size:12px;margin-bottom:3px;">Niveau laser</div>
-            <div class="card-dist" style="margin-bottom:4px;">à 1,9 km</div>
-            <div class="card-price"><span class="amt">4€</span><span class="unit">/jr</span></div>
-          </div>
-        </div>
-
+      <!--
+        🎯 C'est ici que les cartes sont injectées par fetchTools()
+        L'id "tools-grid" est ciblé par renderGrid() dans le JS
+      -->
+      <div id="tools-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <!-- Rempli dynamiquement par Supabase -->
       </div>
     </div>
-    <!-- end section Récemment ajoutés -->
 
     <div style="height:16px;"></div>
-
   </div>
   <!-- end .scroll-area -->
 
   <!-- BOTTOM NAV -->
   <nav class="bottom-nav">
-
     <div class="nav-item">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -593,14 +582,12 @@
       <span class="nav-lbl" style="color:#f97316;">Explorer</span>
       <div style="width:4px;height:4px;background:#f97316;border-radius:50%;"></div>
     </div>
-
     <div class="nav-item">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
       </svg>
       <span class="nav-lbl" style="color:#94a3b8;">Mes Outils</span>
     </div>
-
     <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
       <button onclick="openModal()" style="width:52px;height:52px;background:linear-gradient(135deg,#fb923c,#ea580c);border:none;border-radius:16px;box-shadow:0 6px 20px rgba(249,115,22,0.36);cursor:pointer;display:flex;align-items:center;justify-content:center;margin-top:-16px;transition:transform 0.18s;">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -609,7 +596,6 @@
       </button>
       <span class="nav-lbl" style="color:#94a3b8;">Proposer</span>
     </div>
-
     <div class="nav-item">
       <div style="position:relative;">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -619,7 +605,6 @@
       </div>
       <span class="nav-lbl" style="color:#94a3b8;">Messages</span>
     </div>
-
     <div class="nav-item">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
@@ -627,9 +612,7 @@
       </svg>
       <span class="nav-lbl" style="color:#94a3b8;">Profil</span>
     </div>
-
   </nav>
-
 </div>
 <!-- end .phone -->
 
@@ -647,13 +630,8 @@
 
 <!-- ════════════ MODAL ════════════ -->
 <div id="backdrop" onclick="closeModal()"></div>
-
 <div id="modal">
-
-  <div class="modal-handle">
-    <div class="modal-handle-bar"></div>
-  </div>
-
+  <div class="modal-handle"><div class="modal-handle-bar"></div></div>
   <div class="modal-head">
     <div>
       <div class="modal-title">Proposer un outil</div>
@@ -665,22 +643,17 @@
       </svg>
     </button>
   </div>
-
   <div class="modal-body">
-
-    <!-- Catégorie -->
     <div>
       <div class="field-lbl">Catégorie</div>
       <div class="emoji-row">
-        <button class="emoji-btn active" onclick="pickEmoji(this,'🔩')">🔩</button>
-        <button class="emoji-btn"        onclick="pickEmoji(this,'🌿')">🌿</button>
-        <button class="emoji-btn"        onclick="pickEmoji(this,'🪚')">🪚</button>
-        <button class="emoji-btn"        onclick="pickEmoji(this,'🎨')">🎨</button>
-        <button class="emoji-btn"        onclick="pickEmoji(this,'🔧')">🔧</button>
+        <button class="emoji-btn active" onclick="pickEmoji(this,'🔩','percage')">🔩</button>
+        <button class="emoji-btn"        onclick="pickEmoji(this,'🌿','jardin')">🌿</button>
+        <button class="emoji-btn"        onclick="pickEmoji(this,'🪚','decoupe')">🪚</button>
+        <button class="emoji-btn"        onclick="pickEmoji(this,'🎨','peinture')">🎨</button>
+        <button class="emoji-btn"        onclick="pickEmoji(this,'🔧','autre')">🔧</button>
       </div>
     </div>
-
-    <!-- Nom -->
     <div>
       <div class="field-lbl">Nom de l'outil</div>
       <div class="field-wrap" id="wrap-name">
@@ -691,8 +664,6 @@
           onfocus="focusWrap('wrap-name')" onblur="blurWrap('wrap-name')" />
       </div>
     </div>
-
-    <!-- Prix -->
     <div>
       <div class="field-lbl">Prix par jour</div>
       <div class="field-wrap" id="wrap-price">
@@ -703,59 +674,54 @@
         <span style="font-size:12px;color:#94a3b8;font-weight:500;margin-left:auto;">/jour</span>
       </div>
     </div>
-
-    <!-- Publier -->
     <button class="btn-publish" id="btn-publish" onclick="publishTool()">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
       </svg>
       Publier l'annonce
     </button>
-
   </div>
-  <!-- end .modal-body -->
-
 </div>
-<!-- end #modal -->
 
 
-<!-- ════════════ JAVASCRIPT ════════════ -->
+<!-- ════════════ JS GLOBAL (UI uniquement, sans Supabase) ════════════ -->
 <script>
-  /* ── 1. Category pills ── */
-  function selectPill(el) {
+  /* publishTool() et fetchTools() sont définis dans le module ES6 ci-dessus
+     et exposés via window.publishTool / window.fetchTools               */
+
+  window._chosenEmoji     = '🔩';
+  window._chosenCategorie = 'percage';
+
+  /* ── Pills ── */
+  function selectPill(el, categorie) {
     document.querySelectorAll('#pill-bar .pill').forEach(function(p) {
-      p.classList.remove('active');
-      p.classList.add('inactive');
+      p.classList.remove('active'); p.classList.add('inactive');
     });
-    el.classList.remove('inactive');
-    el.classList.add('active');
+    el.classList.remove('inactive'); el.classList.add('active');
     el.style.transform = 'scale(0.92)';
     setTimeout(function() { el.style.transform = ''; }, 200);
+    if (window.fetchTools) window.fetchTools(categorie);
   }
 
-  /* ── 2. Toast ── */
-  var toastTimer = null;
+  /* ── Toast ── */
+  var _toastTimer = null;
   function showToast(msg) {
-    var toast = document.getElementById('toast');
+    var t = document.getElementById('toast');
     document.getElementById('toast-text').textContent = msg;
-    toast.classList.add('show');
-    if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(function() { toast.classList.remove('show'); }, 3000);
+    t.classList.add('show');
+    if (_toastTimer) clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(function() { t.classList.remove('show'); }, 3000);
   }
 
-  /* ── 3. Rent button ── */
+  /* ── Rent button ── */
   function sendRent(btn, toolName) {
     if (btn.classList.contains('sent') || btn.disabled) return;
-    btn.classList.remove('avail');
-    btn.classList.add('sent');
-    btn.textContent = '✓ Envoyé';
-    btn.onclick = null;
+    btn.classList.remove('avail'); btn.classList.add('sent');
+    btn.textContent = '✓ Envoyé'; btn.onclick = null;
     showToast('Demande envoyée pour : ' + toolName + ' !');
   }
 
-  /* ── 4. Modal ── */
-  var chosenEmoji = '🔩';
-
+  /* ── Modal ── */
   function openModal() {
     document.getElementById('backdrop').classList.add('show');
     document.getElementById('modal').classList.add('show');
@@ -763,56 +729,23 @@
     document.getElementById('input-price').value = '';
     resetPublishBtn();
   }
-
   function closeModal() {
     document.getElementById('backdrop').classList.remove('show');
     document.getElementById('modal').classList.remove('show');
   }
-
-  function pickEmoji(btn, emoji) {
-    chosenEmoji = emoji;
+  function pickEmoji(btn, emoji, categorie) {
+    window._chosenEmoji     = emoji;
+    window._chosenCategorie = categorie;
     document.querySelectorAll('.emoji-btn').forEach(function(b) { b.classList.remove('active'); });
     btn.classList.add('active');
   }
-
   function focusWrap(id) { document.getElementById(id).classList.add('focused'); }
   function blurWrap(id)  { document.getElementById(id).classList.remove('focused'); }
-
   function shakeWrap(id) {
     var el = document.getElementById(id);
-    el.classList.remove('focused');
-    el.classList.add('errored');
+    el.classList.remove('focused'); el.classList.add('errored');
     setTimeout(function() { el.classList.remove('errored'); }, 700);
   }
-
-  function publishTool() {
-    var name  = document.getElementById('input-name').value.trim();
-    var price = document.getElementById('input-price').value.trim();
-
-    if (!name) {
-      shakeWrap('wrap-name');
-      document.getElementById('input-name').focus();
-      return;
-    }
-    if (!price || isNaN(price) || Number(price) < 1) {
-      shakeWrap('wrap-price');
-      document.getElementById('input-price').focus();
-      return;
-    }
-
-    var btn = document.getElementById('btn-publish');
-    btn.disabled = true;
-    btn.style.background  = 'linear-gradient(135deg,#4ade80,#16a34a)';
-    btn.style.boxShadow   = '0 6px 20px rgba(34,197,94,0.26)';
-    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Publié !';
-
-    setTimeout(function() {
-      closeModal();
-      showToast(chosenEmoji + ' « ' + name + ' » publié avec succès !');
-      setTimeout(resetPublishBtn, 500);
-    }, 850);
-  }
-
   function resetPublishBtn() {
     var btn = document.getElementById('btn-publish');
     btn.disabled = false;
