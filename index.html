@@ -16,6 +16,7 @@
 
        SQL a executer une seule fois :
        ALTER TABLE tools ADD COLUMN IF NOT EXISTS image_url text;
+       ALTER TABLE tools ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id);
   ===================================================== -->
   <script type="module">
     import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
@@ -216,7 +217,32 @@
         ? '<button class="btn-rent avail" onclick="sendRent(this,\'' + esc(t.nom) + '\')">Louer</button>'
         : '<button class="btn-rent unavail" disabled>Indispo.</button>';
 
-      return '<div class="tool-card"><div class="card-img" style="background:' + (t.image_url ? '#f1f5f9' : bg) + ';overflow:hidden;padding:0;">' + visual + '</div><div class="card-body"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin-bottom:4px;"><span class="card-title">' + esc(t.nom) + '</span>' + badge + '</div><div class="card-dist"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>' + esc(t.distance) + '</div><div class="card-footer"><div class="card-price"><span class="amt">' + t.prix_jour + '\u20AC</span><span class="unit">/jr</span></div>' + btn + '</div></div></div>';
+      // ── Bouton Supprimer — visible seulement si l'outil appartient à l'utilisateur connecté ──
+      const isOwner = currentUser && t.user_id && t.user_id === currentUser.id;
+      const deleteBtn = isOwner
+        ? '<button class="btn-delete" title="Supprimer mon annonce" onclick="event.stopPropagation();deleteTool(\'' + esc(t.id) + '\',this.closest(\'.tool-card\'))">'
+          + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+          + '<polyline points="3 6 5 6 21 6"/>'
+          + '<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>'
+          + '<path d="M10 11v6"/><path d="M14 11v6"/>'
+          + '<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>'
+          + '</svg>'
+          + '</button>'
+        : '';
+
+      return '<div class="tool-card">'
+        + '<div class="card-img" style="background:' + (t.image_url ? '#f1f5f9' : bg) + ';overflow:hidden;padding:0;position:relative;">'
+        + visual
+        + deleteBtn   // ← badge poubelle en overlay sur l'image
+        + '</div>'
+        + '<div class="card-body">'
+        + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin-bottom:4px;">'
+        + '<span class="card-title">' + esc(t.nom) + '</span>' + badge
+        + '</div>'
+        + '<div class="card-dist"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>' + esc(t.distance) + '</div>'
+        + '<div class="card-footer"><div class="card-price"><span class="amt">' + t.prix_jour + '\u20AC</span><span class="unit">/jr</span></div>' + btn + '</div>'
+        + '</div>'
+        + '</div>';
     }
 
     function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -272,7 +298,8 @@
         emoji,
         image_url,              // null si pas de photo
         distance: '< 100 m',
-        statut:   'disponible'
+        statut:   'disponible',
+        user_id:  currentUser ? currentUser.id : null   // ← ID de l'utilisateur connecté
       }]);
 
       if (error) {
@@ -296,10 +323,57 @@
     }
 
     /* =====================================================
+       DELETE TOOL — suppression avec confirmation
+    ===================================================== */
+    async function deleteTool(id, cardEl) {
+      // Affiche la modale de confirmation personnalisée
+      window._pendingDeleteId   = id;
+      window._pendingDeleteCard = cardEl;
+      document.getElementById('confirm-modal').classList.add('show');
+      document.getElementById('shared-backdrop').classList.add('show');
+    }
+
+    async function confirmDelete() {
+      const id     = window._pendingDeleteId;
+      const cardEl = window._pendingDeleteCard;
+      closeConfirmModal();
+
+      if (!id) return;
+
+      // Animation de sortie immédiate sur la carte
+      if (cardEl) {
+        cardEl.style.transition = 'opacity .3s, transform .3s';
+        cardEl.style.opacity    = '0';
+        cardEl.style.transform  = 'scale(.92)';
+      }
+
+      const { error } = await supabase
+        .from('tools')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', currentUser.id);   // double sécurité côté client
+
+      if (error) {
+        // Restaure la carte si erreur
+        if (cardEl) { cardEl.style.opacity = '1'; cardEl.style.transform = ''; }
+        showToast('\u26A0\uFE0F Impossible de supprimer l\'annonce.');
+        return;
+      }
+
+      // Retire la carte du DOM après l'animation
+      setTimeout(function() {
+        if (cardEl && cardEl.parentNode) cardEl.parentNode.removeChild(cardEl);
+        showToast('\u{1F5D1}\uFE0F Annonce supprim\u00E9e.');
+      }, 300);
+    }
+
+    /* =====================================================
        EXPOSE VERS LE SCOPE GLOBAL
     ===================================================== */
     window.fetchTools     = fetchTools;
     window.publishTool    = publishTool;
+    window.deleteTool     = deleteTool;
+    window.confirmDelete  = confirmDelete;
     window.onFileSelected = onFileSelected;
     window.signIn         = signIn;
     window.signUp         = signUp;
@@ -417,7 +491,70 @@
     .btn-publish{width:100%;padding:15px;background:linear-gradient(135deg,#fb923c,#ea580c);color:white;border:none;border-radius:15px;font-family:'Syne',sans-serif;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(249,115,22,.28);display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .18s,background .3s;margin-top:4px;}
     .btn-publish:active{transform:scale(.97);}
 
-    /* ── PHOTO UPLOAD ZONE ── */
+    /* ── Bouton Supprimer (overlay sur l'image de la carte) ── */
+    .btn-delete {
+      position: absolute;
+      top: 8px; right: 8px;
+      width: 28px; height: 28px;
+      background: rgba(220, 38, 38, 0.88);
+      color: white;
+      border: none; border-radius: 8px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25);
+      transition: background .18s, transform .18s;
+      z-index: 10;
+      backdrop-filter: blur(4px);
+    }
+    .btn-delete:hover  { background: #dc2626; transform: scale(1.1); }
+    .btn-delete:active { transform: scale(.94); }
+
+    /* ── Modale de confirmation ── */
+    #confirm-modal {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%) scale(.92);
+      width: 310px; max-width: calc(100vw - 40px);
+      background: white;
+      border-radius: 20px;
+      padding: 28px 24px 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.22), 0 0 0 1px rgba(0,0,0,.06);
+      opacity: 0; pointer-events: none;
+      transition: opacity .25s, transform .25s cubic-bezier(.34,1.56,.64,1);
+      z-index: 1002;
+      text-align: center;
+    }
+    #confirm-modal.show {
+      opacity: 1; pointer-events: auto;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    .confirm-icon {
+      width: 52px; height: 52px; border-radius: 50%;
+      background: #fef2f2;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 14px;
+    }
+    .confirm-title { font-family:'Syne',sans-serif; font-size:17px; font-weight:700; color:#1e293b; margin-bottom:8px; }
+    .confirm-sub   { font-size:13px; color:#64748b; line-height:1.5; margin-bottom:20px; }
+    .confirm-actions { display:flex; gap:10px; }
+    .confirm-cancel {
+      flex:1; padding:13px;
+      background:#f1f5f9; color:#475569;
+      border:none; border-radius:12px;
+      font-family:'Syne',sans-serif; font-size:14px; font-weight:700;
+      cursor:pointer; transition:background .18s;
+    }
+    .confirm-cancel:hover { background:#e2e8f0; }
+    .confirm-ok {
+      flex:1; padding:13px;
+      background:linear-gradient(135deg,#f87171,#dc2626); color:white;
+      border:none; border-radius:12px;
+      font-family:'Syne',sans-serif; font-size:14px; font-weight:700;
+      cursor:pointer;
+      box-shadow:0 4px 14px rgba(220,38,38,.28);
+      transition:transform .18s;
+    }
+    .confirm-ok:active { transform:scale(.96); }
     .photo-upload-zone{
       border: 2px dashed #e2e8f0;
       border-radius: 16px;
@@ -764,6 +901,24 @@
   </div>
 </div>
 
+<!-- MODALE DE CONFIRMATION SUPPRESSION -->
+<div id="confirm-modal">
+  <div class="confirm-icon">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="3 6 5 6 21 6"/>
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+      <path d="M10 11v6"/><path d="M14 11v6"/>
+      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+    </svg>
+  </div>
+  <div class="confirm-title">Supprimer l'annonce&nbsp;?</div>
+  <div class="confirm-sub">Cette action est irr&eacute;versible. L'annonce sera d&eacute;finitivement supprim&eacute;e.</div>
+  <div class="confirm-actions">
+    <button class="confirm-cancel" onclick="closeConfirmModal()">Annuler</button>
+    <button class="confirm-ok"     onclick="confirmDelete()">Supprimer</button>
+  </div>
+</div>
+
 <!-- JS GLOBAL -->
 <script>
   window._chosenEmoji     = '\u{1F529}';
@@ -807,7 +962,13 @@
   /* Backdrop */
   function showBackdrop(){document.getElementById('shared-backdrop').classList.add('show');}
   function hideBackdrop(){document.getElementById('shared-backdrop').classList.remove('show');}
-  function closeAllModals(){closeModal();closeAuthModal();closeProfileModal();}
+  function closeConfirmModal(){
+    document.getElementById('confirm-modal').classList.remove('show');
+    hideBackdrop();
+    window._pendingDeleteId   = null;
+    window._pendingDeleteCard = null;
+  }
+  function closeAllModals(){closeModal();closeAuthModal();closeProfileModal();closeConfirmModal();}
 
   /* Modale outils */
   function openModal(){
