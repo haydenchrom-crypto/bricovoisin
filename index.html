@@ -16,7 +16,9 @@
 
        SQL a executer une seule fois :
        ALTER TABLE tools ADD COLUMN IF NOT EXISTS image_url text;
-       ALTER TABLE tools ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id);
+       ALTER TABLE tools ADD COLUMN IF NOT EXISTS user_id  uuid REFERENCES auth.users(id);
+       ALTER TABLE tools ADD COLUMN IF NOT EXISTS lat      double precision;
+       ALTER TABLE tools ADD COLUMN IF NOT EXISTS lng      double precision;
   ===================================================== -->
   <script type="module">
     import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
@@ -30,11 +32,103 @@
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
     const BUCKET   = 'tool-images';   // bucket Supabase Storage (doit etre public)
 
-    let currentUser = null;
+    let currentUser  = null;
+
+    // ── Position GPS du visiteur (mise à jour au chargement) ──
+    let visitorLat = null;
+    let visitorLng = null;
 
     /* =====================================================
-       AUTH STATE
+       GEOLOCALISATION — Haversine + capture position
     ===================================================== */
+
+    // Formule de Haversine : retourne la distance en km entre deux points GPS
+    function haversine(lat1, lng1, lat2, lng2) {
+      const R    = 6371;   // rayon de la Terre en km
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a    = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180)
+                 * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // Formate une distance en km en texte lisible
+    function fmtDist(km) {
+      if (km < 0.1)  return '< 100 m';
+      if (km < 1)    return Math.round(km * 1000) + ' m';
+      if (km < 10)   return km.toFixed(1) + ' km';
+      return Math.round(km) + ' km';
+    }
+
+    // Demande la position du visiteur et met à jour l'indicateur dans l'UI
+    function requestVisitorLocation() {
+      if (!navigator.geolocation) return;
+      setGeoBadge('loading');
+      navigator.geolocation.getCurrentPosition(
+        function(pos) {
+          visitorLat = pos.coords.latitude;
+          visitorLng = pos.coords.longitude;
+          setGeoBadge('ok');
+          // Re-trie la grille avec les vraies distances si déjà chargée
+          if (window._lastTools) renderGrid(window._lastTools);
+        },
+        function() {
+          setGeoBadge('denied');
+        },
+        { timeout: 8000, maximumAge: 60000 }
+      );
+    }
+
+    // Enrichit chaque outil avec sa distance calculée et trie du plus proche au plus loin
+    function enrichWithDistance(tools) {
+      return tools
+        .map(function(t) {
+          if (visitorLat !== null && t.lat && t.lng) {
+            t._distKm  = haversine(visitorLat, visitorLng, t.lat, t.lng);
+            t._distStr = fmtDist(t._distKm);
+          } else {
+            t._distKm  = Infinity;
+            t._distStr = t.distance || '—';   // fallback texte existant
+          }
+          return t;
+        })
+        .sort(function(a, b) { return a._distKm - b._distKm; });
+    }
+
+    // Met à jour le badge GPS dans le header
+    function setGeoBadge(state) {
+      const badge = document.getElementById('geo-badge');
+      if (!badge) return;
+      if (state === 'loading') {
+        badge.title       = 'Localisation en cours...';
+        badge.style.background = '#f1f5f9';
+        badge.style.color      = '#94a3b8';
+        badge.innerHTML   = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+      } else if (state === 'ok') {
+        badge.title       = 'Position GPS active — tri par proximité';
+        badge.style.background = '#dcfce7';
+        badge.style.color      = '#16a34a';
+        badge.innerHTML   = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> Près de moi';
+      } else {
+        badge.title       = 'Géolocalisation refusée — distances estimées';
+        badge.style.background = '#fff7ed';
+        badge.style.color      = '#f97316';
+        badge.innerHTML   = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> GPS désactivé';
+      }
+    }
+
+    // Capture la position GPS du vendeur au moment de la publication
+    function getPublisherPosition() {
+      return new Promise(function(resolve) {
+        if (!navigator.geolocation) { resolve(null); return; }
+        navigator.geolocation.getCurrentPosition(
+          function(pos) { resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }); },
+          function()    { resolve(null); },   // si refus, on publie quand même sans GPS
+          { timeout: 6000 }
+        );
+      });
+    }
     supabase.auth.onAuthStateChange(function(_event, session) {
       currentUser = session ? session.user : null;
       updateAuthUI(currentUser);
@@ -192,6 +286,8 @@
       if (cat !== 'tous') q = q.eq('categorie', cat);
       const { data, error } = await q;
       if (error) { showGridError(error.message); return; }
+      // Mémorise pour re-trier quand la géoloc arrive après le chargement
+      window._lastTools = data;
       renderGrid(data);
     }
 
@@ -201,7 +297,9 @@
         grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:32px 0;"><div style="font-size:40px;margin-bottom:8px;">\u{1F50D}</div><p style="font-family:\'Syne\',sans-serif;font-weight:700;color:#1e293b;font-size:15px;">Aucun outil dans cette cat\u00E9gorie</p><p style="color:#94a3b8;font-size:12.5px;margin-top:4px;">Soyez le premier \u00E0 proposer !</p></div>';
         return;
       }
-      grid.innerHTML = tools.map(createCardHTML).join('');
+      // Calcule les distances réelles et trie du plus proche au plus loin
+      const sorted = enrichWithDistance(tools);
+      grid.innerHTML = sorted.map(createCardHTML).join('');
     }
 
     function createCardHTML(t) {
@@ -239,7 +337,7 @@
         + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin-bottom:4px;">'
         + '<span class="card-title">' + esc(t.nom) + '</span>' + badge
         + '</div>'
-        + '<div class="card-dist"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>' + esc(t.distance) + '</div>'
+        + '<div class="card-dist"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>' + esc(t._distStr || t.distance || '—') + '</div>'
         + '<div class="card-footer"><div class="card-price"><span class="amt">' + t.prix_jour + '\u20AC</span><span class="unit">/jr</span></div>' + btn + '</div>'
         + '</div>'
         + '</div>';
@@ -272,7 +370,20 @@
 
       let image_url = null;
 
-      // --- ETAPE 1 : upload photo si une image a ete choisie ---
+      // --- ETAPE 1 (bis) : capture GPS du vendeur ---
+      btn.style.background = 'linear-gradient(135deg,#34d399,#059669)';
+      btn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> Localisation...';
+
+      const pos = await getPublisherPosition();   // null si refus GPS
+      const lat  = pos ? pos.lat : null;
+      const lng  = pos ? pos.lng : null;
+
+      // Calcule la distance affichée (par rapport au visiteur actuel, sinon "< 100 m")
+      const distanceStr = (lat && visitorLat)
+        ? fmtDist(haversine(visitorLat, visitorLng, lat, lng))
+        : '< 100 m';
+
+      // --- ETAPE 2 : upload photo si une image a ete choisie ---
       if (_selectedFile) {
         btn.style.background = 'linear-gradient(135deg,#818cf8,#6366f1)';
         btn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg> Upload en cours...';
@@ -287,7 +398,7 @@
         }
       }
 
-      // --- ETAPE 2 : INSERT en base ---
+      // --- ETAPE 3 : INSERT en base ---
       btn.style.background = 'linear-gradient(135deg,#94a3b8,#64748b)';
       btn.innerHTML = '\u23F3 Enregistrement...';
 
@@ -297,9 +408,11 @@
         prix_jour,
         emoji,
         image_url,              // null si pas de photo
-        distance: '< 100 m',
+        distance: distanceStr,  // texte calculé (affiché sur les anciennes cartes)
+        lat,                    // coordonnée GPS latitude du vendeur
+        lng,                    // coordonnée GPS longitude du vendeur
         statut:   'disponible',
-        user_id:  currentUser ? currentUser.id : null   // ← ID de l'utilisateur connecté
+        user_id:  currentUser ? currentUser.id : null
       }]);
 
       if (error) {
@@ -380,6 +493,7 @@
     window.signOut        = signOut;
 
     document.addEventListener('DOMContentLoaded', function() {
+      requestVisitorLocation();   // demande la géoloc dès le chargement
       fetchTools();
       supabase.auth.getSession().then(function(r) {
         currentUser = r.data.session ? r.data.session.user : null;
@@ -490,6 +604,16 @@
     .btn-danger:hover{background:#fee2e2;}
     .btn-publish{width:100%;padding:15px;background:linear-gradient(135deg,#fb923c,#ea580c);color:white;border:none;border-radius:15px;font-family:'Syne',sans-serif;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(249,115,22,.28);display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .18s,background .3s;margin-top:4px;}
     .btn-publish:active{transform:scale(.97);}
+
+    /* ── Badge GPS dans le header ── */
+    #geo-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 10.5px; font-weight: 600;
+      padding: 4px 10px; border-radius: 100px;
+      font-family: 'DM Sans', sans-serif;
+      cursor: default; transition: background .3s, color .3s;
+      margin-top: 8px;
+    }
 
     /* ── Bouton Supprimer (overlay sur l'image de la carte) ── */
     .btn-delete {
@@ -634,6 +758,8 @@
     <div style="margin-top:18px;">
       <p id="header-greeting" style="font-size:13px;color:#94a3b8;">Bonjour &#128075;</p>
       <h1 style="font-family:'Syne',sans-serif;font-size:21px;font-weight:700;color:#1e293b;letter-spacing:-.4px;line-height:1.25;margin-top:3px;">Trouvez l'outil qu'il<br/>vous faut aujourd'hui</h1>
+      <!-- Badge GPS — état mis à jour par setGeoBadge() -->
+      <span id="geo-badge" style="background:#f1f5f9;color:#94a3b8;"></span>
     </div>
   </header>
 
